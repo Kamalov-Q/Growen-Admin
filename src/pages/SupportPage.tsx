@@ -466,6 +466,22 @@ function SupportDrawer({
 
                   {menuFor === m.id ? (
                     <span className="support-msg__menu">
+                      {/* Tapping the photo opens it, but the menu is where
+                          people look for "what can I do with this" — so the
+                          same action lives in both places. */}
+                      {m.imageUrl || m.imageThumbUrl ? (
+                        <button
+                          onClick={() => {
+                            setLightbox(
+                              resolveMediaUrl(m.imageUrl ?? m.imageThumbUrl) ??
+                                null,
+                            );
+                            setMenuFor(null);
+                          }}
+                        >
+                          {t("Rasmni ochish")}
+                        </button>
+                      ) : null}
                       <button
                         onClick={() => {
                           setReplyTo(m);

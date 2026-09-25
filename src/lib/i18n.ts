@@ -140,6 +140,7 @@ const RU: Record<string, string> = {
   "Qadalganni olib tashlash": "Открепить",
   "Javob berish": "Ответить",
   Xabar: "Сообщение",
+  "Rasmni ochish": "Открыть фото",
 
   // ---- user profile
   "Ko'rish": "Просмотр",
