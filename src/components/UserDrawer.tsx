@@ -1,4 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { toast } from "../lib/toast";
 import { adminApi, resolveMediaUrl } from "../lib/api";
 import { dateTime, fullName } from "../lib/format";
 import { Avatar, Badge, Drawer, ErrorState, Skeleton } from "./ui";
@@ -26,6 +28,25 @@ export function UserDrawer({
   onClose: () => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
+
+  /**
+   * Opening a support thread with them. Created on the spot if they have
+   * never written — a moderator who has just read somebody's record often
+   * needs to ask them something, and waiting for the customer to write first
+   * would be a strange rule.
+   */
+  const openThread = useMutation({
+    mutationFn: (userId: string) => adminApi.supportThreadByUser(userId),
+    onSuccess: (thread) => {
+      onClose();
+      // The support page reads this and opens the thread, so the moderator
+      // lands in the conversation rather than on a queue they have to search.
+      navigate(`/support?thread=${thread.id}`);
+    },
+    onError: (e) => toast.error(e),
+  });
+
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin", "user", id],
     queryFn: () => adminApi.user(id!),
@@ -38,6 +59,17 @@ export function UserDrawer({
       title={data ? fullName(data) || t("Foydalanuvchi") : t("Foydalanuvchi")}
       subtitle={data?.phoneNumber ?? undefined}
       onClose={onClose}
+      footer={
+        data ? (
+          <button
+            className="btn btn--primary"
+            disabled={openThread.isPending}
+            onClick={() => openThread.mutate(data.id)}
+          >
+            {openThread.isPending ? "…" : `✉ ${t("Xabar yozish")}`}
+          </button>
+        ) : undefined
+      }
     >
       {isError ? (
         <ErrorState error={error} onRetry={() => void refetch()} />

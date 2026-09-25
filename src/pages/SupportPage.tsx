@@ -5,9 +5,12 @@ import { dateTime, fullName } from "../lib/format";
 import { Avatar, Badge, EmptyState, ErrorState, Pager, PageHeader, Skeleton } from "../components/ui";
 import { toast } from "../lib/toast";
 import { usePaging } from "../lib/usePaging";
+import { useSearchParams } from "react-router-dom";
 import { useT, useLang } from "../lib/i18n";
 import { getSupportSocket } from "../lib/support-socket";
 import { VoicePlayer } from "../components/VoicePlayer";
+import { UserDrawer } from "../components/UserDrawer";
+import { Lightbox } from "../components/Lightbox";
 
 const STATUSES = ["OPEN", "CLOSED", ""] as const;
 
@@ -19,7 +22,10 @@ export function SupportPage() {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<string>("OPEN");
   const { offset, setOffset, limit, setLimit } = usePaging();
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  // `?thread=<id>` is how the user drawer hands a conversation over.
+  const [openId, setOpenId] = useState<string | null>(params.get("thread"));
+  const [openUser, setOpenUser] = useState<string | null>(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin", "support", status, offset, limit],
@@ -103,8 +109,15 @@ export function SupportPage() {
                         className="row--click"
                         onClick={() => setOpenId(thread.id)}
                       >
-                        <td>
-                          <div className="support-user">
+                        <td onClick={(e) => e.stopPropagation()}>
+                          {/* The person, not the thread: clicking a name
+                              anywhere in this dashboard should open who they
+                              are. The rest of the row still opens the chat. */}
+                          <button
+                            className="support-user person-link"
+                            onClick={() => thread.user && setOpenUser(thread.user.id)}
+                            disabled={!thread.user}
+                          >
                             <Avatar
                               name={thread.user?.name ?? null}
                               surname={thread.user?.surname ?? null}
@@ -118,7 +131,7 @@ export function SupportPage() {
                                 {thread.user?.phoneNumber ?? ""}
                               </div>
                             </div>
-                          </div>
+                          </button>
                         </td>
                         <td>
                           <div className="report-comment">
@@ -166,14 +179,38 @@ export function SupportPage() {
         </div>
       )}
 
-      <SupportDrawer id={openId} onClose={() => setOpenId(null)} />
+      <SupportDrawer
+        id={openId}
+        onClose={() => {
+          setOpenId(null);
+          // Drop the param too, or a reload reopens what was just closed.
+          if (params.has("thread")) {
+            params.delete("thread");
+            setParams(params, { replace: true });
+          }
+        }}
+        onOpenUser={setOpenUser}
+      />
+
+      {/* Stacked over the thread rather than replacing it: the moderator is
+          still reading the conversation, and losing their place to look up a
+          name would make the link cost more than it saves. */}
+      <UserDrawer id={openUser} onClose={() => setOpenUser(null)} />
     </>
   );
 }
 
 /** One thread, with the reply box. Kept in this file because it is the only
  *  thing that uses it and it is half the page's behaviour. */
-function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
+function SupportDrawer({
+  id,
+  onClose,
+  onOpenUser,
+}: {
+  id: string | null;
+  onClose: () => void;
+  onOpenUser: (userId: string) => void;
+}) {
   const t = useT();
   useLang();
   const queryClient = useQueryClient();
@@ -181,6 +218,7 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
   // Which message's "…" menu is open, and which one the reply answers.
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<AdminSupportMessage | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -215,6 +253,19 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [data?.messages.length]);
+
+  const pinnedMessage = data?.messages.find(
+    (m) => m.id === data.pinnedMessageId,
+  );
+
+  /** Jump to a message and flash it, so the eye finds it after the scroll. */
+  const scrollToMessage = (messageId: string) => {
+    const el = document.getElementById(`support-msg-${messageId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("support-msg--flash");
+    setTimeout(() => el.classList.remove("support-msg--flash"), 1200);
+  };
 
   const send = useMutation({
     mutationFn: (body: string) =>
@@ -254,13 +305,56 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
       <aside className="drawer" onClick={(e) => e.stopPropagation()}>
         <header className="drawer__head">
           <div className="drawer__headings">
-            <h2>{data?.user ? fullName(data.user) || "—" : t("Yordam")}</h2>
+            <h2>
+              <button
+                className="person-link person-link--title"
+                onClick={() => data?.user && onOpenUser(data.user.id)}
+                disabled={!data?.user}
+              >
+                {data?.user ? fullName(data.user) || "—" : t("Yordam")}
+              </button>
+            </h2>
             <p className="muted">{data?.user?.phoneNumber ?? ""}</p>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label={t("Yopish")}>
             ✕
           </button>
         </header>
+
+        {/* Pinned bar under the header, the way every messenger does it: a
+            mark on the bubble itself only helps once you have already
+            scrolled to it, which is the thing pinning is meant to avoid.
+            Clicking it jumps to the message. */}
+        {pinnedMessage ? (
+          <div
+            className="pinbar"
+            role="button"
+            tabIndex={0}
+            onClick={() => scrollToMessage(pinnedMessage.id)}
+            onKeyDown={(e) =>
+              e.key === "Enter" && scrollToMessage(pinnedMessage.id)
+            }
+          >
+            <span className="pinbar__icon">📌</span>
+            <span className="pinbar__body">
+              <span className="pinbar__label">{t("Qadalgan")}</span>
+              <span className="pinbar__text">
+                {pinnedMessage.body || t("Xabar")}
+              </span>
+            </span>
+            <button
+              className="icon-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                pin.mutate(null);
+              }}
+              aria-label={t("Qadalganni olib tashlash")}
+              title={t("Qadalganni olib tashlash")}
+            >
+              ✕
+            </button>
+          </div>
+        ) : null}
 
         <div className="drawer__body support-thread">
           {isError ? (
@@ -272,6 +366,7 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
               {data.messages.map((m) => (
                 <div
                   key={m.id}
+                  id={`support-msg-${m.id}`}
                   className={`support-msg${m.fromAdmin ? " support-msg--admin" : ""}${
                     m.id === data.pinnedMessageId ? " support-msg--pinned" : ""
                   }`}
@@ -291,23 +386,45 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
                       Without it a screenshot of someone else's threat reads
                       as the customer's own message. */}
                   {m.forwardedFromName ? (
-                    <span className="support-msg__fwd muted">
+                    // The name is the point of a forward — "who said this" is
+                    // exactly what a moderator needs next, and their record is
+                    // the answer. Plain text when the account is gone.
+                    <button
+                      className={`support-msg__fwd muted${
+                        m.forwardedFromUserId ? " support-msg__fwd--link" : ""
+                      }`}
+                      disabled={!m.forwardedFromUserId}
+                      // Messages forwarded before the author id was recorded
+                      // keep their attribution but cannot be opened; saying so
+                      // beats a name that silently does nothing.
+                      title={
+                        m.forwardedFromUserId
+                          ? t("Profilni ochish")
+                          : t("Muallif qayd etilmagan")
+                      }
+                      onClick={() =>
+                        m.forwardedFromUserId && onOpenUser(m.forwardedFromUserId)
+                      }
+                    >
                       ↪ {m.forwardedFromName}
-                    </span>
+                    </button>
                   ) : null}
 
                   {m.imageThumbUrl || m.imageUrl ? (
-                    <a
-                      href={resolveMediaUrl(m.imageUrl ?? m.imageThumbUrl)}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      className="support-msg__imgbtn"
+                      onClick={() =>
+                        setLightbox(
+                          resolveMediaUrl(m.imageUrl ?? m.imageThumbUrl) ?? null,
+                        )
+                      }
                     >
                       <img
                         className="support-msg__img"
                         src={resolveMediaUrl(m.imageThumbUrl ?? m.imageUrl)}
                         alt=""
                       />
-                    </a>
+                    </button>
                   ) : null}
                   {/* A voice note plays here, with its real waveform: the
                       question is often "how did they say it", and a link to
@@ -431,6 +548,8 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
           </div>
         </footer>
       </aside>
+
+      <Lightbox url={lightbox} onClose={() => setLightbox(null)} />
     </div>
   );
 }

@@ -247,6 +247,12 @@ export const adminApi = {
     offset?: number;
   }) => api<Page<AdminSupportThread>>(`/admin/support?${qs(params)}`),
 
+  /** Their thread, created if they have never written. */
+  supportThreadByUser: (userId: string) =>
+    api<AdminSupportThread>(`/admin/support/by-user/${userId}`, {
+      method: "POST",
+    }),
+
   supportThread: (id: string) =>
     api<AdminSupportThreadDetail>(`/admin/support/${id}`),
 

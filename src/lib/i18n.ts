@@ -152,6 +152,12 @@ const RU: Record<string, string> = {
   "Ro'yxatdan o'tgan": "Зарегистрирован",
   "Oxirgi faollik": "Последняя активность",
 
+  siz: "вы",
+  "Xabar yozish": "Написать сообщение",
+  Bloklash: "Заблокировать",
+  "Blokdan chiqarish": "Разблокировать",
+  "Adminlikdan olish": "Снять админа",
+
   // ---- settings
   "Til va ko'rinish": "Язык и оформление",
   Til: "Язык",

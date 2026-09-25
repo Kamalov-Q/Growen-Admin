@@ -151,11 +151,12 @@ export function UsersPage() {
                         </td>
                         <td className="nowrap">{date(u.createdAt)}</td>
                         <td>
-                          <div className="row-actions">
-                            {/* Available for every row including your own:
-                                looking at a record is not a moderation
-                                action, and hiding it from yourself would
-                                only make it harder to check the page works. */}
+                          {/* One row of icon buttons, all the same size and
+                              all on the same line. The eye and a full-width
+                              red button stacked on top of each other made
+                              every row a different height and the important
+                              action the loudest thing on the page. */}
+                          <div className="row-actions row-actions--end">
                             <button
                               className="icon-btn"
                               onClick={() => setOpenUser(u.id)}
@@ -167,39 +168,50 @@ export function UsersPage() {
                                 <circle cx="12" cy="12" r="3" />
                               </svg>
                             </button>
+
+                            {/* Your own row keeps the eye and nothing else:
+                                banning or demoting yourself is the one thing
+                                no dashboard should make easy. */}
+                            {self ? (
+                              <span className="muted nowrap">{t("siz")}</span>
+                            ) : u.role === "ADMIN" ? (
+                              <button
+                                className="icon-btn"
+                                onClick={() => setPending({ kind: "revoke", user: u })}
+                                aria-label={t("Adminlikdan olish")}
+                                title={t("Adminlikdan olish")}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M12 3l7 4v5c0 4.4-3 8.3-7 9-4-.7-7-4.6-7-9V7z" />
+                                  <path d="m9 12 2 2 4-4" />
+                                </svg>
+                              </button>
+                            ) : banned ? (
+                              <button
+                                className="icon-btn icon-btn--good"
+                                onClick={() => setPending({ kind: "unban", user: u })}
+                                aria-label={t("Blokdan chiqarish")}
+                                title={t("Blokdan chiqarish")}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <rect x="4" y="11" width="16" height="10" rx="2" />
+                                  <path d="M8 11V7a4 4 0 0 1 7.9-.9" />
+                                </svg>
+                              </button>
+                            ) : (
+                              <button
+                                className="icon-btn icon-btn--danger"
+                                onClick={() => setPending({ kind: "ban", user: u })}
+                                aria-label={t("Bloklash")}
+                                title={t("Bloklash")}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <circle cx="12" cy="12" r="9" />
+                                  <path d="m5.6 5.6 12.8 12.8" />
+                                </svg>
+                              </button>
+                            )}
                           </div>
-                          {self ? (
-                            <span className="muted">siz</span>
-                          ) : (
-                            <div className="row-actions">
-                              {u.role === "ADMIN" ? (
-                                <button
-                                  className="btn btn--ghost btn--sm"
-                                  onClick={() => setPending({ kind: "revoke", user: u })}
-                                >
-                                  Adminlikdan olish
-                                </button>
-                              ) : (
-                                <>
-                                  {banned ? (
-                                    <button
-                                      className="btn btn--ghost btn--sm"
-                                      onClick={() => setPending({ kind: "unban", user: u })}
-                                    >
-                                      Blokdan chiqarish
-                                    </button>
-                                  ) : (
-                                    <button
-                                      className="btn btn--danger btn--sm"
-                                      onClick={() => setPending({ kind: "ban", user: u })}
-                                    >
-                                      Bloklash
-                                    </button>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          )}
                         </td>
                       </tr>
                     );

@@ -7,6 +7,7 @@ import { useT } from "../lib/i18n";
 import { toast } from "../lib/toast";
 import { usePaging } from "../lib/usePaging";
 import { ListingDrawer } from "../components/ListingDrawer";
+import { UserDrawer } from "../components/UserDrawer";
 
 const STATUSES = ["OPEN", "RESOLVED", "DISMISSED", ""] as const;
 const STATUS_LABEL: Record<string, string> = {
@@ -38,6 +39,7 @@ export function ReportsPage() {
   const [status, setStatus] = useState<string>("OPEN");
   const { offset, setOffset, limit, setLimit } = usePaging();
   const [openListing, setOpenListing] = useState<string | null>(null);
+  const [openUser, setOpenUser] = useState<string | null>(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["admin", "reports", status, offset, limit],
@@ -135,9 +137,15 @@ export function ReportsPage() {
                             <div className="muted report-comment">“{r.comment}”</div>
                           ) : null}
                         </td>
-                        <td>
-                          <div>{r.reporter ? fullName(r.reporter) || "—" : "—"}</div>
-                          <div className="muted">{r.reporter?.phoneNumber ?? ""}</div>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <button
+                            className="person-link"
+                            onClick={() => r.reporter && setOpenUser(r.reporter.id)}
+                            disabled={!r.reporter}
+                          >
+                            <div>{r.reporter ? fullName(r.reporter) || "—" : "—"}</div>
+                            <div className="muted">{r.reporter?.phoneNumber ?? ""}</div>
+                          </button>
                         </td>
                         <td className="muted">{date(r.createdAt)}</td>
                         <td>
@@ -200,6 +208,8 @@ export function ReportsPage() {
           />
         </div>
       )}
+
+      <UserDrawer id={openUser} onClose={() => setOpenUser(null)} />
 
       <ListingDrawer id={openListing} onClose={() => setOpenListing(null)} />
     </>
