@@ -235,6 +235,8 @@ export const adminApi = {
   deleteReview: (id: string) =>
     api<{ success: boolean }>(`/admin/reviews/${id}`, { method: "DELETE" }),
 
+  user: (id: string) => api<AdminUserDetail>(`/admin/users/${id}`),
+
   system: () => api<AdminSystem>("/admin/system"),
 
   // ---- support ------------------------------------------------------------
@@ -248,16 +250,31 @@ export const adminApi = {
   supportThread: (id: string) =>
     api<AdminSupportThreadDetail>(`/admin/support/${id}`),
 
-  supportSend: (id: string, body: string, image?: { url: string; thumbUrl: string }) =>
+  supportSend: (
+    id: string,
+    body: string,
+    opts?: { image?: { url: string; thumbUrl: string }; replyToId?: string },
+  ) =>
     api<AdminSupportMessage>(`/admin/support/${id}/messages`, {
       method: "POST",
-      body: { ...(body ? { body } : {}), ...(image ? { image } : {}) },
+      body: {
+        ...(body ? { body } : {}),
+        ...(opts?.image ? { image: opts.image } : {}),
+        ...(opts?.replyToId ? { replyToId: opts.replyToId } : {}),
+      },
     }),
 
   supportSetStatus: (id: string, status: "OPEN" | "CLOSED") =>
     api<AdminSupportThread>(`/admin/support/${id}/status`, {
       method: "PATCH",
       body: { status },
+    }),
+
+  /** `messageId: null` clears it. The same pin the customer sees. */
+  supportPin: (id: string, messageId: string | null) =>
+    api<AdminSupportThread>(`/admin/support/${id}/pin`, {
+      method: "POST",
+      body: { messageId },
     }),
 
   supportMarkRead: (id: string) =>
@@ -501,6 +518,24 @@ export interface AdminChatReport {
   } | null;
 }
 
+/** One person's whole record, as the profile drawer shows it. */
+export interface AdminUserDetail extends AdminUserRow {
+  lastSeenAt: string | null;
+  listings: {
+    total: number;
+    active: number;
+    draft: number;
+    archived: number;
+    /** Distinct viewers across everything they have posted. */
+    views: number;
+  };
+  reviewsWritten: { count: number; average: number | null };
+  commentsWritten: number;
+  /** Reports about their listings, and reports they filed about others. */
+  reports: { against: number; filed: number };
+  identities: { provider: string; linkedAt: string }[];
+}
+
 export interface AdminSystem {
   usdToUzs: number;
   /** Null until the first successful fetch after the API booted. */
@@ -533,6 +568,8 @@ export interface AdminSupportMessage {
   /** Whose words these originally were, on a forwarded message. */
   forwardedFromName: string | null;
   forwardedFromUserId: string | null;
+  /** The message this answers, within the same thread. */
+  replyToId: string | null;
   createdAt: string;
 }
 
@@ -544,6 +581,8 @@ export interface AdminSupportThread {
   userUnread: number;
   /** Messages the desk has not read — what the queue sorts on. */
   adminUnread: number;
+  /** The message kept at the top, shared with the customer. */
+  pinnedMessageId: string | null;
   createdAt: string;
   user: {
     id: string;

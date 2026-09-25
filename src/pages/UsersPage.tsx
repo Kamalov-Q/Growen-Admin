@@ -7,6 +7,7 @@ import { Avatar, Badge, EmptyState, ErrorState, Modal, Pager, PageHeader, Skelet
 import { useT } from "../lib/i18n";
 import { toast } from "../lib/toast";
 import { usePaging } from "../lib/usePaging";
+import { UserDrawer } from "../components/UserDrawer";
 
 /** What the confirm dialog is being asked to do, and to whom. */
 type PendingAction =
@@ -30,6 +31,7 @@ export function UsersPage() {
   const t = useT();
   const [q, setQ] = useState("");
   const { offset, setOffset, limit, setLimit } = usePaging();
+  const [openUser, setOpenUser] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [banReason, setBanReason] = useState("");
   const search = useDebounced(q);
@@ -149,6 +151,23 @@ export function UsersPage() {
                         </td>
                         <td className="nowrap">{date(u.createdAt)}</td>
                         <td>
+                          <div className="row-actions">
+                            {/* Available for every row including your own:
+                                looking at a record is not a moderation
+                                action, and hiding it from yourself would
+                                only make it harder to check the page works. */}
+                            <button
+                              className="icon-btn"
+                              onClick={() => setOpenUser(u.id)}
+                              aria-label={t("Ko'rish")}
+                              title={t("Ko'rish")}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
+                            </button>
+                          </div>
                           {self ? (
                             <span className="muted">siz</span>
                           ) : (
@@ -255,6 +274,8 @@ export function UsersPage() {
           </>
         ) : null}
       </Modal>
+
+      <UserDrawer id={openUser} onClose={() => setOpenUser(null)} />
     </>
   );
 }

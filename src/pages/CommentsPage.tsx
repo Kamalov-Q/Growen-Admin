@@ -6,6 +6,7 @@ import { Badge, EmptyState, ErrorState, Pager, PageHeader, Skeleton } from "../c
 import { useT } from "../lib/i18n";
 import { toast } from "../lib/toast";
 import { usePaging } from "../lib/usePaging";
+import { confirmDialog } from "../lib/confirm";
 import { ListingDrawer } from "../components/ListingDrawer";
 import { CommentDrawer } from "../components/CommentDrawer";
 
@@ -33,17 +34,21 @@ export function CommentsPage() {
     onError: (e) => toast.error(e),
   });
 
-  const onDelete = (c: AdminComment) => {
+  const onDelete = async (c: AdminComment) => {
     // Deleting a top-level comment takes its replies too, so the warning has
     // to say so — the row on screen is not the whole of what disappears.
     const extra =
       !c.isReply && c.replyCount > 0
-        ? ` Unga berilgan ${c.replyCount} ta javob ham o'chiriladi.`
+        ? ` ${t("Unga berilgan javoblar ham o'chiriladi.")}`
         : "";
-    if (!confirm(`Bu izoh o'chirilsinmi?${extra} Buni qaytarib bo'lmaydi.`)) {
-      return;
-    }
-    remove.mutate(c.id);
+
+    const ok = await confirmDialog({
+      title: t("Bu izoh o'chirilsinmi?"),
+      message: `${t("Buni qaytarib bo'lmaydi.")}${extra}`,
+      confirmLabel: t("O'chirish"),
+      destructive: true,
+    });
+    if (ok) remove.mutate(c.id);
   };
 
   return (
@@ -128,7 +133,7 @@ export function CommentsPage() {
                             <button
                               className="btn btn--danger-soft btn--sm"
                               disabled={remove.isPending}
-                              onClick={() => onDelete(c)}
+                              onClick={() => void onDelete(c)}
                             >
                               O'chirish
                             </button>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { adminApi, resolveMediaUrl } from "../lib/api";
+import { adminApi, resolveMediaUrl, type AdminSupportMessage } from "../lib/api";
 import { dateTime, fullName } from "../lib/format";
 import { Avatar, Badge, EmptyState, ErrorState, Pager, PageHeader, Skeleton } from "../components/ui";
 import { toast } from "../lib/toast";
@@ -178,6 +178,9 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
   useLang();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
+  // Which message's "…" menu is open, and which one the reply answers.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<AdminSupportMessage | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -214,9 +217,20 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
   }, [data?.messages.length]);
 
   const send = useMutation({
-    mutationFn: (body: string) => adminApi.supportSend(id!, body),
+    mutationFn: (body: string) =>
+      adminApi.supportSend(id!, body, { replyToId: replyTo?.id }),
     onSuccess: () => {
       setDraft("");
+      setReplyTo(null);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "support"] });
+    },
+    onError: (e) => toast.error(e),
+  });
+
+  const pin = useMutation({
+    mutationFn: (messageId: string | null) => adminApi.supportPin(id!, messageId),
+    onSuccess: () => {
+      setMenuFor(null);
       void queryClient.invalidateQueries({ queryKey: ["admin", "support"] });
     },
     onError: (e) => toast.error(e),
@@ -258,8 +272,21 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
               {data.messages.map((m) => (
                 <div
                   key={m.id}
-                  className={`support-msg${m.fromAdmin ? " support-msg--admin" : ""}`}
+                  className={`support-msg${m.fromAdmin ? " support-msg--admin" : ""}${
+                    m.id === data.pinnedMessageId ? " support-msg--pinned" : ""
+                  }`}
                 >
+                  {m.id === data.pinnedMessageId ? (
+                    <span className="support-msg__pin muted">📌 {t("Qadalgan")}</span>
+                  ) : null}
+
+                  {/* The quoted line, so an answer reads without scrolling. */}
+                  {m.replyToId ? (
+                    <span className="support-msg__quote muted">
+                      {data.messages.find((q) => q.id === m.replyToId)?.body ??
+                        t("Xabar")}
+                    </span>
+                  ) : null}
                   {/* Forwarded out of a chat — whose words these were.
                       Without it a screenshot of someone else's threat reads
                       as the customer's own message. */}
@@ -306,7 +333,46 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
                   ) : null}
 
                   {m.body ? <p className="support-msg__text">{m.body}</p> : null}
-                  <span className="support-msg__time muted">{time(m.createdAt)}</span>
+                  <span className="support-msg__foot">
+                    <span className="support-msg__time muted">
+                      {time(m.createdAt)}
+                    </span>
+                    <button
+                      className="support-msg__more"
+                      onClick={() => setMenuFor(menuFor === m.id ? null : m.id)}
+                      aria-label={t("Yana")}
+                      aria-expanded={menuFor === m.id}
+                    >
+                      ⋯
+                    </button>
+                  </span>
+
+                  {menuFor === m.id ? (
+                    <span className="support-msg__menu">
+                      <button
+                        onClick={() => {
+                          setReplyTo(m);
+                          setMenuFor(null);
+                        }}
+                      >
+                        {t("Javob berish")}
+                      </button>
+                      <button
+                        disabled={pin.isPending}
+                        onClick={() =>
+                          pin.mutate(
+                            data.pinnedMessageId === m.id ? null : m.id,
+                          )
+                        }
+                      >
+                        {t(
+                          data.pinnedMessageId === m.id
+                            ? "Qadalganni olib tashlash"
+                            : "Qadab qo'yish",
+                        )}
+                      </button>
+                    </span>
+                  ) : null}
                 </div>
               ))}
               <div ref={endRef} />
@@ -315,6 +381,21 @@ function SupportDrawer({ id, onClose }: { id: string | null; onClose: () => void
         </div>
 
         <footer className="drawer__foot support-foot">
+          {replyTo ? (
+            <div className="support-reply">
+              <span className="support-reply__text">
+                {replyTo.body || t("Xabar")}
+              </span>
+              <button
+                className="icon-btn"
+                onClick={() => setReplyTo(null)}
+                aria-label={t("Bekor qilish")}
+              >
+                ✕
+              </button>
+            </div>
+          ) : null}
+
           <textarea
             className="input support-input"
             rows={2}

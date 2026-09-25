@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { ApiError } from "../lib/api";
 import { toastItems, toastSubs } from "../lib/toast";
 import { t } from "../lib/i18n";
+import { confirmSubs, currentConfirm, settleConfirm } from "../lib/confirm";
 import { PAGE_SIZES } from "../lib/usePaging";
 
 export function PageHeader({
@@ -96,6 +97,70 @@ export function Avatar({
     <span className="avatar" style={{ background: `hsl(${hue} 45% 42%)` }}>
       {initials}
     </span>
+  );
+}
+
+/**
+ * The app's own confirmation dialog.
+ *
+ * Mounted once, next to the Toaster. The browser's `confirm()` blocks the
+ * whole tab, cannot be translated, cannot be styled, and announces itself as
+ * "localhost:5173 says" — which is a strange voice for a product to speak in
+ * when it is about to delete somebody's data.
+ */
+export function ConfirmHost() {
+  const request = useSyncExternalStore(
+    (fn) => {
+      confirmSubs.add(fn);
+      return () => confirmSubs.delete(fn);
+    },
+    () => currentConfirm(),
+  );
+
+  useEffect(() => {
+    if (!request) return;
+    const onKey = (e: KeyboardEvent) => {
+      // Escape cancels, Enter confirms — the two keys a dialog owes you.
+      if (e.key === "Escape") settleConfirm(false);
+      if (e.key === "Enter") settleConfirm(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [request]);
+
+  if (!request) return null;
+
+  return (
+    <div
+      className="overlay"
+      onMouseDown={(e) => e.target === e.currentTarget && settleConfirm(false)}
+    >
+      <div
+        className="modal card confirm"
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={request.title}
+      >
+        <div className="modal__body confirm__body">
+          <h2 className="confirm__title">{request.title}</h2>
+          {request.message ? (
+            <p className="confirm__text muted">{request.message}</p>
+          ) : null}
+        </div>
+        <footer className="modal__foot">
+          <button className="btn btn--ghost" onClick={() => settleConfirm(false)}>
+            {request.cancelLabel ?? t("Bekor qilish")}
+          </button>
+          <button
+            className={`btn ${request.destructive ? "btn--danger" : "btn--primary"}`}
+            onClick={() => settleConfirm(true)}
+            autoFocus
+          >
+            {request.confirmLabel ?? t("Tasdiqlash")}
+          </button>
+        </footer>
+      </div>
+    </div>
   );
 }
 

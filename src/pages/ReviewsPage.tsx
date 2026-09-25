@@ -6,6 +6,7 @@ import { Badge, EmptyState, ErrorState, Pager, PageHeader, Skeleton } from "../c
 import { useT } from "../lib/i18n";
 import { toast } from "../lib/toast";
 import { usePaging } from "../lib/usePaging";
+import { confirmDialog } from "../lib/confirm";
 import { ListingDrawer } from "../components/ListingDrawer";
 
 /** The filters worth having: everything, the complaints, and the ones that
@@ -58,12 +59,18 @@ export function ReviewsPage() {
     onError: (e) => toast.error(e),
   });
 
-  const onDelete = (r: AdminReview) => {
-    const who = r.author ? fullName(r.author) || "foydalanuvchi" : "foydalanuvchi";
-    if (!confirm(`${who} qoldirgan sharh o'chirilsinmi? Buni qaytarib bo'lmaydi.`)) {
-      return;
-    }
-    remove.mutate(r.id);
+  const onDelete = async (r: AdminReview) => {
+    const who = r.author ? fullName(r.author) || "—" : "—";
+
+    const ok = await confirmDialog({
+      title: t("Bu sharh o'chirilsinmi?"),
+      // The author's name in the body rather than the title: the question is
+      // always the same, the person it is about is the detail.
+      message: `${who} · ${t("Buni qaytarib bo'lmaydi.")}`,
+      confirmLabel: t("O'chirish"),
+      destructive: true,
+    });
+    if (ok) remove.mutate(r.id);
   };
 
   return (
@@ -154,7 +161,7 @@ export function ReviewsPage() {
                             <button
                               className="btn btn--danger-soft btn--sm"
                               disabled={remove.isPending}
-                              onClick={() => onDelete(r)}
+                              onClick={() => void onDelete(r)}
                             >
                               O'chirish
                             </button>

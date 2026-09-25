@@ -128,6 +128,29 @@ const RU: Record<string, string> = {
   Jami: "Всего",
 
   Yangilash: "Обновить",
+  Tasdiqlash: "Подтвердить",
+  "Bu izoh o'chirilsinmi?": "Удалить этот комментарий?",
+  "Bu sharh o'chirilsinmi?": "Удалить этот отзыв?",
+  "Buni qaytarib bo'lmaydi.": "Это действие нельзя отменить.",
+  "Unga berilgan javoblar ham o'chiriladi.":
+    "Ответы на него также будут удалены.",
+
+  Qadalgan: "Закреплено",
+  "Qadab qo'yish": "Закрепить",
+  "Qadalganni olib tashlash": "Открепить",
+  "Javob berish": "Ответить",
+  Xabar: "Сообщение",
+
+  // ---- user profile
+  "Ko'rish": "Просмотр",
+  Bloklangan: "Заблокирован",
+  Rieltor: "Риелтор",
+  Onlayn: "Онлайн",
+  Faolligi: "Активность",
+  "Yuborgan shikoyatlari": "Отправил жалоб",
+  "Kirish usullari": "Способы входа",
+  "Ro'yxatdan o'tgan": "Зарегистрирован",
+  "Oxirgi faollik": "Последняя активность",
 
   // ---- settings
   "Til va ko'rinish": "Язык и оформление",

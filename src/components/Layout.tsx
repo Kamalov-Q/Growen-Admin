@@ -4,7 +4,7 @@ import { useAuth } from "../features/auth/useAuth";
 import { useT } from "../lib/i18n";
 import { useRate } from "../lib/useRate";
 import { usePrefs } from "../lib/prefs";
-import { Avatar, Toaster } from "./ui";
+import { Avatar, ConfirmHost, Toaster } from "./ui";
 
 const ICONS = {
   home: (
@@ -195,6 +195,7 @@ export function Layout() {
       </main>
 
       <Toaster />
+      <ConfirmHost />
     </div>
   );
 }
