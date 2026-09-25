@@ -256,18 +256,10 @@ export const adminApi = {
   supportThread: (id: string) =>
     api<AdminSupportThreadDetail>(`/admin/support/${id}`),
 
-  supportSend: (
-    id: string,
-    body: string,
-    opts?: { image?: { url: string; thumbUrl: string }; replyToId?: string },
-  ) =>
+  supportSend: (id: string, payload: SupportSendPayload) =>
     api<AdminSupportMessage>(`/admin/support/${id}/messages`, {
       method: "POST",
-      body: {
-        ...(body ? { body } : {}),
-        ...(opts?.image ? { image: opts.image } : {}),
-        ...(opts?.replyToId ? { replyToId: opts.replyToId } : {}),
-      },
+      body: payload,
     }),
 
   supportSetStatus: (id: string, status: "OPEN" | "CLOSED") =>
@@ -552,6 +544,21 @@ export interface AdminSystem {
   serverTime: string;
 }
 
+/** Anything the desk can send: words, a photo, a file or a voice note. */
+export interface SupportSendPayload {
+  type?: "TEXT" | "IMAGE" | "VIDEO" | "VOICE" | "FILE";
+  body?: string;
+  image?: { url: string; thumbUrl: string };
+  mediaUrl?: string;
+  thumbUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  mimeType?: string;
+  durationSec?: number;
+  waveform?: number[];
+  replyToId?: string;
+}
+
 export interface AdminSupportMessage {
   id: string;
   threadId: string;
@@ -589,6 +596,9 @@ export interface AdminSupportThread {
   adminUnread: number;
   /** The message kept at the top, shared with the customer. */
   pinnedMessageId: string | null;
+  /** When each side last read — what the ticks are computed from. */
+  userReadAt: string | null;
+  adminReadAt: string | null;
   createdAt: string;
   user: {
     id: string;

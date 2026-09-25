@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { adminApi, resolveMediaUrl, type AdminSupportMessage } from "../lib/api";
+import {
+  adminApi,
+  resolveMediaUrl,
+  type AdminSupportMessage,
+  type SupportSendPayload,
+} from "../lib/api";
+import { uploadAttachment, type AttachmentKind } from "../lib/upload";
+import { useRecorder } from "../lib/useRecorder";
 import { dateTime, fullName } from "../lib/format";
 import { Avatar, Badge, EmptyState, ErrorState, Pager, PageHeader, Skeleton } from "../components/ui";
 import { toast } from "../lib/toast";
@@ -219,6 +226,9 @@ function SupportDrawer({
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<AdminSupportMessage | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const recorder = useRecorder();
   const endRef = useRef<HTMLDivElement>(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -268,8 +278,8 @@ function SupportDrawer({
   };
 
   const send = useMutation({
-    mutationFn: (body: string) =>
-      adminApi.supportSend(id!, body, { replyToId: replyTo?.id }),
+    mutationFn: (payload: SupportSendPayload) =>
+      adminApi.supportSend(id!, { ...payload, replyToId: replyTo?.id }),
     onSuccess: () => {
       setDraft("");
       setReplyTo(null);
@@ -277,6 +287,45 @@ function SupportDrawer({
     },
     onError: (e) => toast.error(e),
   });
+
+  /** Upload, then send — the two halves of every attachment. */
+  const sendFile = async (file: Blob, kind: AttachmentKind, name: string) => {
+    setUploading(true);
+    try {
+      const a = await uploadAttachment(file, kind, name);
+      send.mutate({
+        type: kind,
+        ...(kind === "IMAGE"
+          ? { image: { url: a.url, thumbUrl: a.thumbUrl ?? a.url } }
+          : { mediaUrl: a.url, thumbUrl: a.thumbUrl ?? undefined }),
+        fileName: a.fileName,
+        fileSize: a.fileSize,
+        mimeType: a.mimeType,
+        durationSec: a.durationSec ?? undefined,
+        waveform: a.waveform ?? undefined,
+      });
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onMic = async () => {
+    if (recorder.recording) {
+      const clip = await recorder.stop(true);
+      // Under a second is a slip of the mouse, not a message.
+      if (clip && recorder.seconds >= 1) {
+        await sendFile(clip, "VOICE", `voice-${Date.now()}.webm`);
+      }
+      return;
+    }
+    try {
+      await recorder.start();
+    } catch {
+      toast.error(new Error(t("Mikrofonga ruxsat berilmadi")));
+    }
+  };
 
   const pin = useMutation({
     mutationFn: (messageId: string | null) => adminApi.supportPin(id!, messageId),
@@ -454,6 +503,30 @@ function SupportDrawer({
                     <span className="support-msg__time muted">
                       {time(m.createdAt)}
                     </span>
+                    {/* Only the desk's own: a tick on the customer's message
+                        would be telling them about themselves. Read when
+                        their stamp is later than the message. */}
+                    {m.fromAdmin ? (
+                      <span
+                        className={`support-msg__tick${
+                          data.userReadAt &&
+                          new Date(data.userReadAt) >= new Date(m.createdAt)
+                            ? " support-msg__tick--read"
+                            : ""
+                        }`}
+                        title={
+                          data.userReadAt &&
+                          new Date(data.userReadAt) >= new Date(m.createdAt)
+                            ? t("O'qilgan")
+                            : t("Yuborilgan")
+                        }
+                      >
+                        {data.userReadAt &&
+                        new Date(data.userReadAt) >= new Date(m.createdAt)
+                          ? "✓✓"
+                          : "✓"}
+                      </span>
+                    ) : null}
                     <button
                       className="support-msg__more"
                       onClick={() => setMenuFor(menuFor === m.id ? null : m.id)}
@@ -540,17 +613,56 @@ function SupportDrawer({
               // every messenger, and support replies are usually one line.
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                if (draft.trim()) send.mutate(draft.trim());
+                if (draft.trim()) send.mutate({ body: draft.trim() });
               }
             }}
           />
           <div className="support-foot__actions">
+            {/* Hidden input, visible button: the browser's own file control
+                cannot be styled and says "No file chosen" next to itself. */}
+            <input
+              ref={fileInput}
+              type="file"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                // Cleared immediately, or picking the same file twice in a
+                // row fires no change event the second time.
+                e.target.value = "";
+                if (!file) return;
+                void sendFile(
+                  file,
+                  file.type.startsWith("image/") ? "IMAGE" : "FILE",
+                  file.name,
+                );
+              }}
+            />
+            <button
+              className="icon-btn"
+              onClick={() => fileInput.current?.click()}
+              disabled={uploading || recorder.recording}
+              aria-label={t("Fayl biriktirish")}
+              title={t("Fayl biriktirish")}
+            >
+              📎
+            </button>
+
+            <button
+              className={`icon-btn${recorder.recording ? " icon-btn--rec" : ""}`}
+              onClick={() => void onMic()}
+              disabled={uploading}
+              aria-label={t("Ovozli xabar")}
+              title={t("Ovozli xabar")}
+            >
+              {recorder.recording ? `⏺ ${recorder.seconds}s` : "🎤"}
+            </button>
+
             <button
               className="btn btn--primary"
-              disabled={!draft.trim() || send.isPending}
-              onClick={() => send.mutate(draft.trim())}
+              disabled={!draft.trim() || send.isPending || uploading}
+              onClick={() => send.mutate({ body: draft.trim() })}
             >
-              {t("Yuborish")}
+              {uploading ? "…" : t("Yuborish")}
             </button>
             <button
               className="btn btn--ghost"

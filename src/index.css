@@ -1331,3 +1331,8 @@ a.link:hover { text-decoration: underline; }
 }
 .lightbox__bar { position: absolute; top: 16px; right: 16px; display: flex; gap: 8px; }
 .support-msg__imgbtn { border: 0; background: none; padding: 0; cursor: zoom-in; }
+
+/* Recording, and delivery ticks on the desk's own replies. */
+.icon-btn--rec { color: var(--danger); font-size: 12px; width: auto; padding: 0 8px; }
+.support-msg__tick { font-size: 11px; color: var(--text-muted); }
+.support-msg__tick--read { color: var(--primary); }

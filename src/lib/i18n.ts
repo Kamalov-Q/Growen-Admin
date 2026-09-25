@@ -141,6 +141,11 @@ const RU: Record<string, string> = {
   "Javob berish": "Ответить",
   Xabar: "Сообщение",
   "Rasmni ochish": "Открыть фото",
+  "Fayl biriktirish": "Прикрепить файл",
+  "Ovozli xabar": "Голосовое сообщение",
+  "Mikrofonga ruxsat berilmadi": "Нет доступа к микрофону",
+  "O'qilgan": "Прочитано",
+  Yuborilgan: "Отправлено",
 
   // ---- user profile
   "Ko'rish": "Просмотр",
