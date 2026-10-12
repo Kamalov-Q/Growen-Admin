@@ -120,6 +120,20 @@ export function OverviewPage() {
               loading={isLoading}
               neutral={!data?.chatReports?.open}
             />
+            <Stat
+              icon={ICON.flag}
+              label="Hikoya shikoyatlari"
+              value={data?.storyReports?.open}
+              loading={isLoading}
+              neutral={!data?.storyReports?.open}
+            />
+            <Stat
+              icon={ICON.flag}
+              label="Tasdiqlash so'rovlari"
+              value={data?.verification?.pending}
+              loading={isLoading}
+              neutral={!data?.verification?.pending}
+            />
           </div>
 
           <CategoryBreakdown

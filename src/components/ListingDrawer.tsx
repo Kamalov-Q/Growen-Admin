@@ -10,6 +10,7 @@ import { PROPERTY_LABEL, PURPOSE_LABEL, PURPOSE_PERIOD, label } from "../lib/lab
 import { useCategories } from "../lib/useCategories";
 import { Avatar, Badge, Drawer, ErrorState, Modal, Skeleton } from "./ui";
 import { toast } from "../lib/toast";
+import { useT } from "../lib/i18n";
 import { PhotoSwiper } from "./PhotoSwiper";
 import { ListingMap } from "./ListingMap";
 
@@ -61,18 +62,25 @@ function toPatch(f: Form): AdminListingPatch {
 /** The server's DTO rules, mirrored so mistakes surface before the request. */
 function validate(f: Form): Partial<Record<keyof Form, string>> {
   const e: Partial<Record<keyof Form, string>> = {};
-  const intIn = (s: string, min: number, max: number): number | null => {
+  // Three outcomes, so the caller reads a word instead of testing for a NaN
+  // that had to be cast to a number to be returned at all: blank means the
+  // field was left out, INVALID means it was filled in wrongly.
+  const INVALID = "invalid" as const;
+  const intIn = (
+    s: string,
+    min: number,
+    max: number,
+  ): number | null | typeof INVALID => {
     if (s.trim() === "") return null;
     const n = Number(s);
-    if (!Number.isInteger(n) || n < min || n > max) return NaN as unknown as number;
-    return n;
+    return Number.isInteger(n) && n >= min && n <= max ? n : INVALID;
   };
 
   if (f.title.trim().length > 160) e.title = "Ko'pi bilan 160 ta belgi";
   if (f.address.trim().length > 500) e.address = "Ko'pi bilan 500 ta belgi";
 
   const rooms = intIn(f.rooms, 0, 1000);
-  if (Number.isNaN(rooms)) e.rooms = "0 dan katta butun son";
+  if (rooms === INVALID) e.rooms = "0 dan katta butun son";
 
   if (f.areaM2.trim() !== "") {
     const area = Number(f.areaM2);
@@ -80,18 +88,12 @@ function validate(f: Form): Partial<Record<keyof Form, string>> {
   }
 
   const floor = intIn(f.floor, -10, 200);
-  if (Number.isNaN(floor)) e.floor = "-10 dan 200 gacha butun son";
+  if (floor === INVALID) e.floor = "-10 dan 200 gacha butun son";
 
   const total = intIn(f.totalFloors, 1, 200);
-  if (Number.isNaN(total)) e.totalFloors = "1 dan 200 gacha butun son";
+  if (total === INVALID) e.totalFloors = "1 dan 200 gacha butun son";
 
-  if (
-    typeof floor === "number" &&
-    typeof total === "number" &&
-    !Number.isNaN(floor) &&
-    !Number.isNaN(total) &&
-    floor > total
-  ) {
+  if (typeof floor === "number" && typeof total === "number" && floor > total) {
     e.floor = "Qavat qavatlar sonidan katta bo'lmasin";
   }
 
@@ -107,8 +109,19 @@ function validate(f: Form): Partial<Record<keyof Form, string>> {
  * Everything about one listing: photos, owner, offers, an edit form, and the
  * moderation switches. CRUD lives here so the table stays a table.
  */
+/** The six levels, in the source language the dictionary is keyed by. */
+const REPAIR_LABEL: Record<string, string> = {
+  NEEDS_REPAIR: "Remont talab",
+  AVERAGE: "O'rtacha",
+  COSMETIC: "Kosmetik",
+  EURO: "Yevroremont",
+  DESIGNER: "Dizaynerlik",
+  CAPITAL: "Kapital ta'mir",
+};
+
 export function ListingDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const t = useT();
   const [form, setForm] = useState<Form | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const { nameOf } = useCategories();
@@ -326,6 +339,24 @@ export function ListingDrawer({ id, onClose }: { id: string | null; onClose: () 
                 {(data.viewCount ?? 0).toLocaleString("ru-RU")}{" "}
                 <span className="muted">· noyob foydalanuvchi</span>
               </dd>
+              <dt>{t("Sotuvchi")}</dt>
+              <dd>
+                {data.sellerType
+                  ? t(data.sellerType === "OWNER" ? "Mulkdor" : "Rieltor")
+                  : "—"}
+              </dd>
+              <dt>{t("Bino turi")}</dt>
+              <dd>
+                {data.buildingType
+                  ? t(
+                      data.buildingType === "NEW"
+                        ? "Yangi bino"
+                        : "Ikkilamchi",
+                    )
+                  : "—"}
+              </dd>
+              <dt>{t("Ta'mirlash")}</dt>
+              <dd>{data.repairType ? t(REPAIR_LABEL[data.repairType]) : "—"}</dd>
               <dt>Manzil</dt>
               <dd>{data.address || "—"}</dd>
               <dt>Maydon</dt>

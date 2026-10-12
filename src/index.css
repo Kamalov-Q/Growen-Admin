@@ -178,6 +178,27 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 .nav__icon { width: 18px; height: 18px; flex-shrink: 0; }
 .nav__link--active .nav__icon { color: var(--primary); }
 
+/* ---- nav group: a heading with a chevron, its pages indented under it ---- */
+.nav-group { display: grid; gap: 3px; }
+.nav-group__head {
+  width: 100%;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nav-group__chevron {
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: transform 180ms ease;
+}
+.nav-group--open .nav-group__chevron { transform: rotate(90deg); }
+.nav-group__items { display: none; gap: 3px; }
+.nav-group--open .nav-group__items { display: grid; }
+
 .content { padding: 32px clamp(20px, 4vw, 48px) 56px; max-width: 1240px; width: 100%; margin-inline: auto; }
 
 /* ---- page furniture ---------------------------------------------------- */
@@ -660,6 +681,9 @@ a.link:hover { text-decoration: underline; }
   .shell { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
   .nav { grid-auto-flow: column; overflow-x: auto; }
+  .nav-group, .nav-group__items, .nav-group--open .nav-group__items { display: contents; }
+  .nav-group__head { display: none; }
+  .nav .nav__link--sub { padding: 10px 12px; }
   .sidebar__footer { margin-top: 0; border-top: none; padding-top: 0; }
   .content { padding: 20px 16px 40px; }
 }
@@ -707,6 +731,15 @@ a.link:hover { text-decoration: underline; }
 .nav__link { gap: 14px; padding: 12px 14px; font-size: 15px; border-radius: 12px; white-space: nowrap; }
 .nav__icon { width: 20px; height: 20px; }
 .nav__link--active::before { left: -16px; top: 10px; bottom: 10px; }
+/* Pages under a group: indented past the heading's icon, on a thin guide
+   line so it is clear which heading they belong to. */
+.nav-group__items { margin-left: 23px; padding-left: 10px; border-left: 1px solid var(--border); }
+.nav .nav__link--sub { padding: 10px 12px; font-size: 14px; gap: 12px; }
+.nav .nav__link--sub .nav__icon { width: 17px; height: 17px; }
+.nav .nav__link--sub.nav__link--active::before { left: -11px; }
+/* A mouse click should not leave a focus box on the heading; the keyboard still gets one. */
+.nav-group__head:focus { outline: none; }
+.nav-group__head:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 /* The fold control: a round tab on the sidebar's right edge. */
 .sidebar__toggle {
@@ -740,6 +773,12 @@ a.link:hover { text-decoration: underline; }
 .shell--collapsed .nav__link:hover { transform: none; }
 .shell--collapsed .nav__link--active::before { left: -12px; }
 .shell--collapsed .sidebar__card { flex-direction: column; gap: 8px; padding: 10px 0; }
+.shell--collapsed .nav-group__head { display: none; }
+.shell--collapsed .nav-group__items { display: grid; }
+.shell--collapsed .nav-group__items { margin-left: 0; padding-left: 0; border-left: none; }
+.shell--collapsed .nav .nav__link--sub { justify-content: center; padding: 12px 0; }
+.shell--collapsed .nav .nav__link--sub .nav__icon { width: 20px; height: 20px; }
+.shell--collapsed .nav .nav__link--sub.nav__link--active::before { left: -12px; }
 
 /* Dates and prices read as one unit — never break "19 сент. 2026 г." in two. */
 .nowrap { white-space: nowrap; }
@@ -1336,3 +1375,61 @@ a.link:hover { text-decoration: underline; }
 .icon-btn--rec { color: var(--danger); font-size: 12px; width: auto; padding: 0 8px; }
 .support-msg__tick { font-size: 11px; color: var(--text-muted); }
 .support-msg__tick--read { color: var(--primary); }
+
+/* A row of small badges inside a table cell — the optional questions a
+   category asks. Wraps rather than widening the column on a narrow window. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ---- reported stories ---------------------------------------------------- */
+/* Portrait, because a story is: a landscape crop of one would cut the face
+   out of most of them. */
+.story-cell { display: flex; align-items: center; gap: 12px; min-width: 240px; }
+.story-thumb {
+  width: 44px; height: 66px; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface-raised); display: block;
+}
+.story-thumb--text {
+  display: grid; place-items: center;
+  font-size: 11px; color: var(--text-muted);
+}
+/* Sits on the still so a video is not mistaken for a photo. */
+.story-cell a { position: relative; display: inline-block; }
+.story-thumb__badge {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  color: #fff; font-size: 14px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+}
+
+/* ---- verification queue -------------------------------------------------- */
+/* Small enough for three per row, big enough to tell a passport from a
+   selfie; the real reading happens in the modal. */
+.kyc-shots { display: flex; gap: 6px; }
+.kyc-shot {
+  width: 58px; height: 44px; padding: 0;
+  border-radius: 8px; border: 1px solid var(--border);
+  overflow: hidden; cursor: pointer; background: var(--surface-raised);
+}
+.kyc-shot:hover { border-color: var(--primary); }
+.kyc-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Fills the dialog: a document is only reviewable at size. */
+.kyc-full { max-width: 100%; max-height: 70vh; display: block; margin: 0 auto; border-radius: 10px; }
+
+.kyc-reason { display: grid; gap: 12px; }
+.kyc-reason .chips { gap: 6px; }
+/* A canned sentence, one click from being the message. */
+.chip-btn {
+  max-width: 100%; text-align: left;
+  padding: 6px 10px; font-size: 12.5px;
+  border-radius: 99px; border: 1px solid var(--border);
+  background: var(--surface-raised); color: var(--text-muted);
+  cursor: pointer;
+}
+.chip-btn:hover { border-color: var(--primary); color: var(--text); }

@@ -1,4 +1,4 @@
-import { API_URL } from "./api";
+import { API_URL, errorFromResponse, sendWithAuthRetry } from "./api";
 import { sessionStore } from "./session";
 
 export type AttachmentKind = "IMAGE" | "VIDEO" | "VOICE" | "FILE";
@@ -29,19 +29,22 @@ export async function uploadAttachment(
   kind: AttachmentKind,
   fileName: string,
 ): Promise<UploadedAttachment> {
-  const form = new FormData();
-  form.append("file", file, fileName);
+  // Rebuilt per attempt: a FormData body cannot be replayed after the 401,
+  // and the token is read each time so the retry carries the refreshed one.
+  const send = () => {
+    const form = new FormData();
+    form.append("file", file, fileName);
 
-  const res = await fetch(`${API_URL}/media/chat/upload?kind=${kind}`, {
-    method: "POST",
-    // No Content-Type: only the runtime knows the multipart boundary.
-    headers: { Authorization: `Bearer ${sessionStore.getAccessToken()}` },
-    body: form,
-  });
+    return fetch(`${API_URL}/media/chat/upload?kind=${kind}`, {
+      method: "POST",
+      // No Content-Type: only the runtime knows the multipart boundary.
+      headers: { Authorization: `Bearer ${sessionStore.getAccessToken()}` },
+      body: form,
+    });
+  };
 
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { message?: string };
-    throw new Error(err.message ?? "Yuklashda xatolik");
-  }
+  const res = await sendWithAuthRetry(send);
+  if (!res.ok) throw await errorFromResponse(res, "Yuklashda xatolik");
+
   return (await res.json()) as UploadedAttachment;
 }

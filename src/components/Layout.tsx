@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../features/auth/useAuth";
 import { useT } from "../lib/i18n";
+import { confirmDialog } from "../lib/confirm";
 import { useRate } from "../lib/useRate";
 import { usePrefs } from "../lib/prefs";
 import { Avatar, ConfirmHost, Toaster } from "./ui";
@@ -37,6 +38,33 @@ const ICONS = {
   amenities: (
     <svg className="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3l1.9 5.6L20 9l-4.6 3.6L17 19l-5-3.4L7 19l1.6-6.4L4 9l6.1-.4z" />
+    </svg>
+  ),
+  tariffs: (
+    <svg className="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2.5" y="6" width="19" height="13" rx="2.5" />
+      <path d="M2.5 10.5h19" />
+      <path d="M6.5 15h4" />
+    </svg>
+  ),
+  billing: (
+    <svg className="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
+      <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+      <path d="M18 12a2 2 0 0 0 0 4h4v-4z" />
+    </svg>
+  ),
+  verification: (
+    <svg className="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l7.5 3v5.5c0 4.3-3 7.7-7.5 9-4.5-1.3-7.5-4.7-7.5-9V6z" />
+      <path d="m9 12 2.2 2.2L15.5 10" />
+    </svg>
+  ),
+  storyReports: (
+    <svg className="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="6" y="3" width="12" height="18" rx="3" />
+      <path d="M3 7.5v9M21 7.5v9" />
+      <path d="M12 9.5v3M12 15.5h.01" />
     </svg>
   ),
   chatReports: (
@@ -76,16 +104,44 @@ const ICONS = {
   ),
 } as const;
 
-const NAV = [
+interface NavItem {
+  to: string;
+  label: string;
+  icon: React.ReactNode;
+  end?: boolean;
+}
+interface NavGroupItem {
+  label: string;
+  icon: React.ReactNode;
+  children: NavItem[];
+}
+
+const NAV: (NavItem | NavGroupItem)[] = [
   { to: "/", label: "Boshqaruv", end: true, icon: ICONS.home },
   { to: "/users", label: "Foydalanuvchilar", icon: ICONS.users },
   { to: "/listings", label: "E'lonlar", icon: ICONS.listings },
   { to: "/categories", label: "Kategoriyalar", icon: ICONS.categories },
   { to: "/amenities", label: "Xususiyatlar", icon: ICONS.amenities },
-  { to: "/reviews", label: "Sharhlar", icon: ICONS.reviews },
-  { to: "/comments", label: "Izohlar", icon: ICONS.comments },
-  { to: "/reports", label: "Shikoyatlar", icon: ICONS.reports },
-  { to: "/chat-reports", label: "Suhbat shikoyatlari", icon: ICONS.chatReports },
+  { to: "/tariffs", label: "Tariflar", icon: ICONS.tariffs },
+  { to: "/billing", label: "To'lovlar", icon: ICONS.billing },
+  {
+    label: "Fikrlar",
+    icon: ICONS.comments,
+    children: [
+      { to: "/reviews", label: "Sharhlar", icon: ICONS.reviews },
+      { to: "/comments", label: "Izohlar", icon: ICONS.comments },
+    ],
+  },
+  {
+    label: "Shikoyatlar",
+    icon: ICONS.reports,
+    children: [
+      { to: "/reports", label: "E'lon shikoyatlari", icon: ICONS.listings },
+      { to: "/chat-reports", label: "Suhbat shikoyatlari", icon: ICONS.chatReports },
+      { to: "/story-reports", label: "Hikoya shikoyatlari", icon: ICONS.storyReports },
+    ],
+  },
+  { to: "/verification", label: "Tasdiqlash so'rovlari", icon: ICONS.verification },
   { to: "/support", label: "Yordam", icon: ICONS.support },
   { to: "/settings", label: "Sozlamalar", icon: ICONS.settings },
 ];
@@ -106,6 +162,16 @@ const readCollapsed = () => {
 export function Layout() {
   const { user, logout } = useAuth();
   const t = useT();
+
+  const onLogout = async () => {
+    const ok = await confirmDialog({
+      title: t("Chiqishni tasdiqlaysizmi?"),
+      message: t("Hisobingizdan chiqasiz."),
+      confirmLabel: t("Chiqish"),
+      destructive: true,
+    });
+    if (ok) await logout();
+  };
   // Loaded here so every table can render converted prices, not just the
   // settings page that shows the rate.
   useRate();
@@ -152,19 +218,13 @@ export function Layout() {
 
         <nav className="nav">
           <p className="nav__label">{t("MENYU")}</p>
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              // Folded to icons, the label is gone — the tooltip says where it goes.
-              title={collapsed ? t(item.label) : undefined}
-              className={({ isActive }) => `nav__link${isActive ? " nav__link--active" : ""}`}
-            >
-              {item.icon}
-              <span className="nav__text">{t(item.label)}</span>
-            </NavLink>
-          ))}
+          {NAV.map((item) =>
+            "children" in item ? (
+              <NavGroup key={item.label} group={item} collapsed={collapsed} />
+            ) : (
+              <NavItemLink key={item.to} item={item} collapsed={collapsed} />
+            ),
+          )}
         </nav>
 
         <div className="sidebar__footer">
@@ -176,7 +236,10 @@ export function Layout() {
             </div>
             <button
               className="icon-btn"
-              onClick={() => void logout()}
+              // Confirmed: signing out is one click from every page in the
+              // dashboard, and the cost of a misclick is losing whatever was
+              // half-written in a support reply.
+              onClick={() => void onLogout()}
               title={t("Chiqish")}
               aria-label={t("Chiqish")}
             >
@@ -196,6 +259,73 @@ export function Layout() {
 
       <Toaster />
       <ConfirmHost />
+    </div>
+  );
+}
+
+function NavItemLink({ item, collapsed, sub }: { item: NavItem; collapsed: boolean; sub?: boolean }) {
+  const t = useT();
+  return (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      // Folded to icons, the label is gone — the tooltip says where it goes.
+      title={collapsed ? t(item.label) : undefined}
+      className={({ isActive }) =>
+        `nav__link${sub ? " nav__link--sub" : ""}${isActive ? " nav__link--active" : ""}`
+      }
+    >
+      {item.icon}
+      <span className="nav__text">{t(item.label)}</span>
+    </NavLink>
+  );
+}
+
+/**
+ * A heading that folds its pages away behind a chevron.
+ *
+ * It follows the route until the admin touches it: on one of its pages it is
+ * open, elsewhere closed — and once toggled by hand, it stays the way it was
+ * left. On the icon rail and on a phone there is no room for a heading, so
+ * the pages show as ordinary items (see .nav-group in index.css).
+ */
+function NavGroup({ group, collapsed }: { group: NavGroupItem; collapsed: boolean }) {
+  const t = useT();
+  const { pathname } = useLocation();
+  const childActive = group.children.some(
+    (c) => pathname === c.to || pathname.startsWith(`${c.to}/`),
+  );
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const open = chosen ?? childActive;
+
+  return (
+    <div className={`nav-group${open ? " nav-group--open" : ""}`}>
+      <button
+        type="button"
+        className={`nav__link nav-group__head${childActive && !open ? " nav__link--active" : ""}`}
+        aria-expanded={open}
+        onClick={() => setChosen(!open)}
+      >
+        {group.icon}
+        <span className="nav__text">{t(group.label)}</span>
+        <svg
+          className="nav-group__chevron"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="m9 6 6 6-6 6" />
+        </svg>
+      </button>
+      <div className="nav-group__items">
+        {group.children.map((c) => (
+          <NavItemLink key={c.to} item={c} collapsed={collapsed} sub />
+        ))}
+      </div>
     </div>
   );
 }

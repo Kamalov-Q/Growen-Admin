@@ -23,6 +23,8 @@ interface FormState {
   icon: CategoryIconKey;
   isActive: boolean;
   floorCapable: boolean;
+  buildingTypeCapable: boolean;
+  repairTypeCapable: boolean;
 }
 
 const EMPTY: FormState = {
@@ -32,6 +34,8 @@ const EMPTY: FormState = {
   icon: "grid",
   isActive: true,
   floorCapable: false,
+  buildingTypeCapable: true,
+  repairTypeCapable: true,
 };
 
 export function CategoriesPage() {
@@ -92,7 +96,7 @@ export function CategoriesPage() {
                   <th>Kategoriya</th>
                   <th>Kalit</th>
                   <th>E'lonlar</th>
-                  <th>Qavatlar</th>
+                  <th>So'raladigan maydonlar</th>
                   <th>Holati</th>
                   <th />
                 </tr>
@@ -147,7 +151,26 @@ export function CategoriesPage() {
                           <code className="mono">{c.slug}</code>
                         </td>
                         <td className="cell-num">{c.listingCount}</td>
-                        <td>{c.floorCapable ? <Badge tone="accent">Bor</Badge> : <Badge>Yo'q</Badge>}</td>
+                        {/* The optional questions this category asks. Named
+                            rather than three Bor/Yo'q columns: what matters
+                            is which ones are on, and a row of "Yo'q" says
+                            nothing about which. */}
+                        <td>
+                          <div className="chips">
+                            {c.floorCapable ? <Badge tone="accent">Qavat</Badge> : null}
+                            {c.buildingTypeCapable ? (
+                              <Badge tone="accent">Bino turi</Badge>
+                            ) : null}
+                            {c.repairTypeCapable ? (
+                              <Badge tone="accent">Ta'mir</Badge>
+                            ) : null}
+                            {!c.floorCapable &&
+                            !c.buildingTypeCapable &&
+                            !c.repairTypeCapable ? (
+                              <Badge>Yo'q</Badge>
+                            ) : null}
+                          </div>
+                        </td>
                         <td>
                           <button
                             className={`switch${c.isActive ? " switch--on" : ""}`}
@@ -237,6 +260,8 @@ function CategoryForm({
             : "grid",
           isActive: initial.isActive,
           floorCapable: initial.floorCapable,
+          buildingTypeCapable: initial.buildingTypeCapable,
+          repairTypeCapable: initial.repairTypeCapable,
         }
       : EMPTY,
   );
@@ -258,6 +283,8 @@ function CategoryForm({
         icon: form.icon,
         isActive: form.isActive,
         floorCapable: form.floorCapable,
+        buildingTypeCapable: form.buildingTypeCapable,
+        repairTypeCapable: form.repairTypeCapable,
       };
       return creating
         ? adminApi.createCategory({ ...body, slug: toSlug(form.slug) })
@@ -270,8 +297,19 @@ function CategoryForm({
     onError: (e) => toast.error(e),
   });
 
-  const turningFloorsOff =
-    !creating && initial.floorCapable && !form.floorCapable && initial.listingCount > 0;
+  // Every question being switched off that listings have already answered.
+  // Named rather than counted, because "12 listings lose their floor" and
+  // "12 listings lose their repair" are different things to be warned about.
+  const clearing =
+    initial && initial.listingCount > 0
+      ? ([
+          ["floorCapable", "qavat"],
+          ["buildingTypeCapable", "bino turi"],
+          ["repairTypeCapable", "ta'mir"],
+        ] as const)
+          .filter(([key]) => initial[key] && !form[key])
+          .map(([, label]) => label)
+      : [];
 
   return (
     <Modal
@@ -369,10 +407,40 @@ function CategoryForm({
             <span className="muted"> — e'londa "4 / 9 qavat" so'raladi (kvartira, ofis)</span>
           </span>
         </label>
-        {turningFloorsOff ? (
+        <label className="check field--wide">
+          <input
+            type="checkbox"
+            checked={form.buildingTypeCapable}
+            onChange={(e) => set("buildingTypeCapable", e.target.checked)}
+          />
+          <span>
+            <strong>Bino turi so'ralsin</strong>
+            <span className="muted">
+              {" "}
+              — "Yangi bino / ikkilamchi" (yer uchastkasi uchun kerak emas)
+            </span>
+          </span>
+        </label>
+
+        <label className="check field--wide">
+          <input
+            type="checkbox"
+            checked={form.repairTypeCapable}
+            onChange={(e) => set("repairTypeCapable", e.target.checked)}
+          />
+          <span>
+            <strong>Ta'mir so'ralsin</strong>
+            <span className="muted">
+              {" "}
+              — "Evroremont, kosmetik…" (devori bor hamma narsa uchun)
+            </span>
+          </span>
+        </label>
+
+        {initial && clearing.length ? (
           <p className="alert field--wide">
-            Diqqat: bu kategoriyadagi {initial.listingCount} ta e'londagi qavat ma'lumotlari
-            o'chiriladi.
+            Diqqat: bu kategoriyadagi {initial.listingCount} ta e'londagi{" "}
+            {clearing.join(", ")} ma'lumotlari o'chiriladi.
           </p>
         ) : null}
 
@@ -461,13 +529,26 @@ function DeleteCategory({
               </option>
             ))}
           </select>
-          {others.find((c) => c.slug === moveTo && !c.floorCapable) &&
-          category.floorCapable ? (
-            <p className="muted" style={{ marginTop: 8 }}>
-              Tanlangan kategoriyada qavat yo'q — ko'chirilgan e'lonlarning qavat ma'lumoti
-              o'chiriladi.
-            </p>
-          ) : null}
+          {(() => {
+            // What the destination does not ask about is cleared on the way
+            // in, so say which before the move rather than after it.
+            const target = others.find((c) => c.slug === moveTo);
+            const lost = target
+              ? ([
+                  ["floorCapable", "qavat"],
+                  ["buildingTypeCapable", "bino turi"],
+                  ["repairTypeCapable", "ta'mir"],
+                ] as const)
+                  .filter(([key]) => category[key] && !target[key])
+                  .map(([, label]) => label)
+              : [];
+            return lost.length ? (
+              <p className="muted" style={{ marginTop: 8 }}>
+                Tanlangan kategoriyada {lost.join(", ")} so'ralmaydi — ko'chirilgan
+                e'lonlarning bu ma'lumotlari o'chiriladi.
+              </p>
+            ) : null;
+          })()}
         </div>
       ) : (
         <p style={{ margin: 0 }}>

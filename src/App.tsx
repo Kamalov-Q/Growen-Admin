@@ -10,7 +10,11 @@ import { ListingsPage } from "./pages/ListingsPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
 import { ChatReportsPage } from "./pages/ChatReportsPage";
 import { AmenitiesPage } from "./pages/AmenitiesPage";
+import { TariffsPage } from "./pages/TariffsPage";
+import { BillingPage } from "./pages/BillingPage";
 import { ReportsPage } from "./pages/ReportsPage";
+import { StoryReportsPage } from "./pages/StoryReportsPage";
+import { VerificationPage } from "./pages/VerificationPage";
 import { ReviewsPage } from "./pages/ReviewsPage";
 import { CommentsPage } from "./pages/CommentsPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -43,7 +47,12 @@ export default function App() {
               <Route path="listings" element={<ListingsPage />} />
               <Route path="categories" element={<CategoriesPage />} />
               <Route path="chat-reports" element={<ChatReportsPage />} />
+              <Route path="story-reports" element={<StoryReportsPage />} />
+              <Route path="verification" element={<VerificationPage />} />
               <Route path="amenities" element={<AmenitiesPage />} />
+              <Route path="tariffs" element={<TariffsPage />} />
+              <Route path="billing" element={<BillingPage />} />
+              <Route path="payments" element={<Navigate to="/billing" replace />} />
               <Route path="reports" element={<ReportsPage />} />
               <Route path="reviews" element={<ReviewsPage />} />
               <Route path="comments" element={<CommentsPage />} />

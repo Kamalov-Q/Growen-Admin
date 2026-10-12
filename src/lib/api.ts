@@ -71,7 +71,9 @@ async function doRefresh(): Promise<boolean> {
   }
 }
 
-function refreshSession(): Promise<boolean> {
+/** Exported for the socket: an expired token breaks the live thread the same
+ *  way it breaks a request, and it is repaired the same way. */
+export function refreshSession(): Promise<boolean> {
   refreshing ??= doRefresh().finally(() => (refreshing = null));
   return refreshing;
 }
@@ -79,6 +81,38 @@ function refreshSession(): Promise<boolean> {
 interface Options extends Omit<RequestInit, "body"> {
   body?: unknown;
   auth?: boolean;
+}
+
+/** Nest's error envelope. `message` is an array when class-validator wrote it. */
+interface ErrorBody {
+  message?: string | string[];
+  code?: string;
+}
+
+/** A failed Response as an ApiError. Exported for the multipart uploads,
+ *  which cannot go through `api()` — their body is FormData. */
+export async function errorFromResponse(
+  res: Response,
+  fallback = "Request failed",
+): Promise<ApiError> {
+  const body = (await res.json().catch(() => ({}))) as ErrorBody;
+  const message = Array.isArray(body.message) ? body.message[0] : body.message;
+  return new ApiError(res.status, message ?? fallback, body.code);
+}
+
+/**
+ * Sends, and on a 401 refreshes the session and sends again — the same retry
+ * `api()` does for JSON requests. `send` is called afresh each time because a
+ * FormData body cannot be replayed once consumed.
+ */
+export async function sendWithAuthRetry(
+  send: () => Promise<Response>,
+): Promise<Response> {
+  const res = await send();
+  if (res.status !== 401) return res;
+
+  if (!(await refreshSession())) throw new ApiError(401, "Session expired");
+  return send();
 }
 
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
@@ -103,17 +137,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
     res = await fetchWithTimeout(`${API_URL}${path}`, build());
   }
 
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as {
-      message?: string | string[];
-      code?: string;
-    };
-    throw new ApiError(
-      res.status,
-      Array.isArray(err.message) ? err.message[0] : (err.message ?? "Request failed"),
-      err.code,
-    );
-  }
+  if (!res.ok) throw await errorFromResponse(res);
 
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -188,6 +212,54 @@ export const adminApi = {
       { method: "DELETE" },
     ),
 
+  // ---- tariffs & top-up bonuses ------------------------------------------
+  // Entirely the admin's to create, edit and delete. A tariff for one of the
+  // built-in actions is charged by the server automatically; one under a
+  // custom code is listed to the app but charged by nothing yet.
+
+  tariffs: () => api<AdminTariff[]>("/admin/tariffs"),
+
+  createTariff: (body: TariffInput & { action: string }) =>
+    api<AdminTariff>("/admin/tariffs", { method: "POST", body }),
+
+  updateTariff: (id: string, body: Partial<TariffInput>) =>
+    api<AdminTariff>(`/admin/tariffs/${id}`, { method: "PATCH", body }),
+
+  /** With no tariff left, a one-off action is free and TOP is not on sale. */
+  deleteTariff: (id: string) =>
+    api<{ deleted: boolean }>(`/admin/tariffs/${id}`, { method: "DELETE" }),
+
+  bonusTiers: () => api<AdminBonusTier[]>("/admin/bonus-tiers"),
+
+  createBonusTier: (body: { minAmount: number; percent: number }) =>
+    api<AdminBonusTier>("/admin/bonus-tiers", { method: "POST", body }),
+
+  updateBonusTier: (
+    id: string,
+    body: { minAmount?: number; percent?: number; isActive?: boolean },
+  ) => api<AdminBonusTier>(`/admin/bonus-tiers/${id}`, { method: "PATCH", body }),
+
+  deleteBonusTier: (id: string) =>
+    api<{ deleted: boolean }>(`/admin/bonus-tiers/${id}`, { method: "DELETE" }),
+
+  // ---- payments & wallets -------------------------------------------------
+
+  payments: (params: {
+    status?: string;
+    provider?: string;
+    limit?: number;
+    offset?: number;
+  }) => api<Page<AdminPaymentRow>>(`/admin/payments?${qs(params)}`),
+
+  wallets: (params: { limit?: number; offset?: number }) =>
+    api<Page<AdminWalletRow>>(`/admin/wallets?${qs(params)}`),
+
+  adjustWallet: (userId: string, body: { amount: number; note: string }) =>
+    api<{ userId: string; balance: string }>(`/admin/wallets/${userId}/adjust`, {
+      method: "POST",
+      body,
+    }),
+
   // ---- reports ------------------------------------------------------------
 
   reports: (params: { status?: string; limit?: number; offset?: number }) =>
@@ -197,6 +269,56 @@ export const adminApi = {
     api<AdminReport>(`/admin/reports/${id}/status`, {
       method: "PATCH",
       body: { status },
+    }),
+
+  // ---- verification -------------------------------------------------------
+  // Deciding an application also deletes its documents on the server: the
+  // review is the last moment anybody can look at them.
+
+  verificationRequests: (params: {
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }) => api<Page<AdminVerificationRequest>>(`/admin/verification-requests?${qs(params)}`),
+
+  approveVerification: (id: string) =>
+    api<{ id: string; status: "APPROVED"; userId: string }>(
+      `/admin/verification-requests/${id}/approve`,
+      { method: "POST" },
+    ),
+
+  /** Puts a decided one back in the queue; an approval loses its badge. */
+  reopenVerification: (id: string) =>
+    api<{ id: string; status: "PENDING"; userId: string }>(
+      `/admin/verification-requests/${id}/reopen`,
+      { method: "POST" },
+    ),
+
+  /** `reason` is delivered to the applicant as a support message, verbatim. */
+  rejectVerification: (id: string, reason: string) =>
+    api<{ id: string; status: "REJECTED"; userId: string }>(
+      `/admin/verification-requests/${id}/reject`,
+      { method: "POST", body: { reason } },
+    ),
+
+  // ---- story reports ------------------------------------------------------
+  // A story is public while it is up, so nothing here is privileged access —
+  // but a report outlives the story, which is why the row carries its own
+  // copy of what was posted.
+
+  storyReports: (params: { status?: string; limit?: number; offset?: number }) =>
+    api<Page<AdminStoryReport>>(`/admin/story-reports?${qs(params)}`),
+
+  setStoryReportStatus: (id: string, status: "OPEN" | "RESOLVED" | "DISMISSED") =>
+    api<AdminStoryReport>(`/admin/story-reports/${id}/status`, {
+      method: "PATCH",
+      body: { status },
+    }),
+
+  /** Takes the story down; the report stays in the queue either way. */
+  removeReportedStory: (storyId: string) =>
+    api<{ deleted: string }>(`/admin/story-reports/${storyId}/story`, {
+      method: "DELETE",
     }),
 
   // ---- chat reports -------------------------------------------------------
@@ -331,6 +453,139 @@ export interface AdminReport {
   } | null;
 }
 
+export interface AdminVerificationRequest {
+  id: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  /** Kept after a decision; null only on applications decided before that
+   *  was the rule. */
+  passportFrontUrl: string | null;
+  passportBackUrl: string | null;
+  selfieUrl: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  user: {
+    id: string;
+    name: string | null;
+    surname: string | null;
+    phoneNumber: string | null;
+    avatarThumbUrl: string | null;
+    isVerifiedRealtor: boolean;
+    createdAt: string;
+  } | null;
+}
+
+export interface AdminStoryReport {
+  id: string;
+  storyId: string;
+  reason: string;
+  comment: string | null;
+  status: "OPEN" | "RESOLVED" | "DISMISSED";
+  createdAt: string;
+  /** False once the story has expired or been taken down — nothing left to
+   *  remove, only a decision to record. */
+  stillLive: boolean;
+  /** The report's own copy of what was posted, kept so the queue still means
+   *  something after the story is gone. */
+  story: {
+    type: "IMAGE" | "VIDEO" | "TEXT";
+    mediaUrl: string | null;
+    thumbUrl: string | null;
+    body: string | null;
+  };
+  author: AdminStoryPerson | null;
+  reporter: AdminStoryPerson | null;
+}
+
+export interface AdminStoryPerson {
+  id: string;
+  name: string | null;
+  surname: string | null;
+  phoneNumber: string | null;
+  avatarThumbUrl: string | null;
+}
+
+/** Mirrors the server's TARIFF_ACTIONS: the ones it charges automatically. */
+export const TARIFF_ACTIONS = ["LISTING_POST", "STORY_POST", "LISTING_PROMOTE"] as const;
+export const isBuiltInAction = (action: string) =>
+  (TARIFF_ACTIONS as readonly string[]).includes(action);
+
+/** The built-in action that sells time: its tariffs must carry days. */
+export const isTimedAction = (action: string) => action === "LISTING_PROMOTE";
+
+export interface AdminTariff {
+  id: string;
+  /** A built-in action, or a code the admin made up. */
+  action: string;
+  nameUz: string;
+  nameRu: string;
+  /** So'm, as the server's decimal string ("5000.00"). */
+  price: string;
+  /** Days the paid effect lasts; null for one-off actions with no duration. */
+  durationDays: number | null;
+  /** Off = not charged (and, for a timed action, not on sale). */
+  isActive: boolean;
+  updatedAt: string;
+}
+
+export interface TariffInput {
+  nameUz: string;
+  nameRu: string;
+  price: number;
+  durationDays?: number;
+  isActive?: boolean;
+}
+
+export interface AdminBonusTier {
+  id: string;
+  /** So'm, decimal string. A top-up at or above this earns `percent`. */
+  minAmount: string;
+  percent: number;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export type PaymentProvider = "CLICK" | "PAYME" | "PAYNET";
+export type PaymentStatus = "CREATED" | "PREPARED" | "PAID" | "CANCELLED";
+export type FiscalStatus =
+  | "NONE"
+  | "BY_PROVIDER"
+  | "PENDING"
+  | "SENDING"
+  | "SENT"
+  | "FAILED";
+
+export interface AdminPaymentRow {
+  id: string;
+  userId: string;
+  provider: PaymentProvider;
+  amount: string;
+  bonusAmount: string | null;
+  status: PaymentStatus;
+  prepareId: string | null;
+  providerTxnId: string | null;
+  providerDocId: string | null;
+  providerError: string | null;
+  cancelReason: string | null;
+  fiscalStatus: FiscalStatus;
+  fiscalSentAt: string | null;
+  paidAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  userName: string | null;
+  userSurname: string | null;
+  userPhone: string | null;
+}
+
+export interface AdminWalletRow {
+  userId: string;
+  balance: string;
+  updatedAt: string;
+  userName: string | null;
+  userSurname: string | null;
+  userPhone: string | null;
+}
+
 export interface AmenityInput {
   nameUz: string;
   nameRu: string;
@@ -372,6 +627,8 @@ export interface Overview {
   };
   reports?: { open: number };
   chatReports?: { open: number };
+  storyReports?: { open: number };
+  verification?: { pending: number };
 }
 
 export interface Page<T> {
@@ -431,6 +688,16 @@ export interface AdminListingDetail {
   category: string;
   address: string | null;
   rooms: number | null;
+  sellerType: "OWNER" | "REALTOR" | null;
+  buildingType: "NEW" | "SECONDARY" | null;
+  repairType:
+    | "NEEDS_REPAIR"
+    | "AVERAGE"
+    | "COSMETIC"
+    | "EURO"
+    | "DESIGNER"
+    | "CAPITAL"
+    | null;
   areaM2: string | null;
   floor: number | null;
   totalFloors: number | null;
@@ -483,7 +750,12 @@ export interface CategoryInput {
   icon: CategoryIconKey;
   sortOrder?: number;
   isActive?: boolean;
+  /** Whether the post form asks "4 of 9 floors" for listings in it. */
   floorCapable?: boolean;
+  /** Whether it asks "new build or resale". Off for land. */
+  buildingTypeCapable?: boolean;
+  /** Whether it asks about the state of repair. Off for land. */
+  repairTypeCapable?: boolean;
 }
 
 export interface AdminCategory extends Required<CategoryInput> {
