@@ -111,6 +111,10 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
   position: sticky;
   top: 0;
   height: 100vh;
+  /* dvh where it is understood: a phone browser's collapsing toolbar makes
+     100vh taller than what is actually on screen, which puts the account card
+     under the fold even when the menu fits. */
+  height: 100dvh;
 }
 .sidebar__brand {
   display: flex;
@@ -118,10 +122,17 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
   gap: 12px;
   padding: 8px 10px 16px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .sidebar__logo { border-radius: 10px; }
+/* The emblem is a dark tile. On the dark theme it sits on a navy surface and
+   its edge would vanish; the hairline is a shadow rather than a border so it
+   rings the tile without taking part in the element's box. One neutral value
+   reads on both schemes. */
+.sidebar__logo,
+.login__logo { box-shadow: 0 0 0 1px rgb(148 163 184 / 0.22); }
 .sidebar__subtitle { display: block; }
-.sidebar__footer { margin-top: auto; display: grid; gap: 10px; }
+.sidebar__footer { margin-top: auto; display: grid; gap: 10px; flex-shrink: 0; }
 .sidebar__card {
   display: flex;
   align-items: center;
@@ -140,7 +151,27 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
   text-overflow: ellipsis;
 }
 
-.nav { display: grid; gap: 3px; }
+/* The menu is the only part of the sidebar that scrolls.
+ *
+ * Without this the nav simply grew past the sidebar's 100vh box: the account
+ * card below it was pushed under the fold, and the overflow made the DOCUMENT
+ * taller than the screen, so the whole page scrolled and took the sticky
+ * sidebar — heading included — up with it.
+ *
+ * `min-height: 0` is the line doing the work. A flex child's default minimum
+ * is its content size, so `overflow-y: auto` alone would never shrink the nav
+ * enough to scroll. */
+.nav {
+  display: grid;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* Reaching the end of the menu must not start scrolling the page behind it. */
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
 .nav__label {
   font-size: 11px;
   font-weight: 800;
@@ -276,6 +307,71 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 }
 .stat__hint svg { width: 12px; height: 12px; }
 .section-gap { display: grid; gap: 14px; }
+/* ---- overview: the work queue -------------------------------------------
+   The four moderation counters used to sit among the listing totals as plain
+   cards. They are not statistics — they are a to-do list, and every one of
+   them has a page that clears it, so they are links with a destination and a
+   state: live when something is waiting, calm when nothing is. */
+.queue { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.queue__card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 120ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+.queue__card:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+/* Something is waiting: amber, which on this palette means "your move" —
+   never red, because a pending request is not a failure. */
+.queue__card--due { border-color: var(--warning); background: var(--warning-soft); }
+.queue__card--due:hover { border-color: var(--warning); }
+.queue__icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+.queue__card--due .queue__icon { background: var(--warning); color: #ffffff; }
+.queue__icon svg { width: 19px; height: 19px; }
+.queue__body { display: grid; gap: 1px; min-width: 0; }
+.queue__count { font-size: 21px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.queue__label { font-size: 12.5px; color: var(--text-muted); }
+.queue__card--due .queue__label { color: var(--warning); font-weight: 600; }
+.queue__go { margin-left: auto; color: var(--text-muted); flex: none; }
+.queue__go svg { width: 16px; height: 16px; }
+
+/* A clear-desk state, so an empty queue reads as finished rather than broken. */
+.queue-clear {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--primary-border);
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 14px;
+}
+.queue-clear svg { width: 18px; height: 18px; flex: none; }
+
+/* A stat that goes somewhere. Same card, now obviously clickable. */
+a.stat { color: inherit; text-decoration: none; }
+a.stat:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+
+.section-title__row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.section-title__row .section-title { margin: 0; }
+
 .section-gap .section-title { margin-top: 10px; }
 .section-gap .section-title:first-child { margin-top: 0; }
 
@@ -510,7 +606,19 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 .overlay--right { place-items: stretch end; padding: 0; }
 @keyframes fade-in { from { opacity: 0; } }
 
-.modal { width: min(460px, 100%); box-shadow: var(--shadow-pop); animation: pop-in 160ms ease; }
+/* Capped at the viewport, with the body as the one scrolling part: a long
+   modal (payment details) used to grow past the window, and since the page
+   behind is fixed, its lower half and the footer could never be reached.
+   The head and foot stay put so "close" is always in view. */
+.modal {
+  width: min(460px, 100%);
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-pop);
+  animation: pop-in 160ms ease;
+}
 @keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
 .modal__head {
   display: flex;
@@ -521,7 +629,56 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
   border-bottom: 1px solid var(--border);
 }
 .modal__title { font-size: 17px; font-weight: 700; }
-.modal__body { padding: 20px; display: grid; gap: 14px; }
+.modal__body {
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+  /* min-height: 0 lets a flex child shrink below its content, which is what
+     allows it to scroll instead of stretching the modal. */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+
+  /* A slim rounded thumb on an invisible track, no arrow buttons — quiet
+     while reading, brighter once the pointer is over the body. Same look as
+     the drawer's. The standard properties cover Chrome 121+ and Firefox;
+     the -webkit rules below cover Safari and older Chrome. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+
+  /* Scroll shadows: a soft shade appears under the header while there is
+     content above, and over the footer while there is more below — so a
+     cut-off edge reads as "keep scrolling", not as the end. The two solid
+     covers travel with the content (local) and hide each shade once its
+     end is reached; the shades stay fixed to the edges (scroll). */
+  background:
+    linear-gradient(var(--surface) 30%, transparent) center top / 100% 40px,
+    linear-gradient(transparent, var(--surface) 70%) center bottom / 100% 40px,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.4), transparent) center top / 100% 12px,
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.4), transparent) center bottom / 100% 12px;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}
+.modal__body:hover { scrollbar-color: var(--text-muted) transparent; }
+.modal__body::-webkit-scrollbar { width: 8px; }
+.modal__body::-webkit-scrollbar-track { background: transparent; }
+.modal__body::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 99px;
+  /* Transparent border + padding-box: the thumb sits inset from the edge
+     instead of touching the modal's rounded corner. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.modal__body:hover::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  background-clip: padding-box;
+}
+.modal__body::-webkit-scrollbar-button { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .modal__body { scroll-behavior: auto; }
+}
 .modal__foot {
   display: flex;
   justify-content: flex-end;
@@ -671,16 +828,197 @@ a.link:hover { text-decoration: underline; }
 .toast--danger { border-color: transparent; background: var(--danger); color: var(--on-danger); }
 
 /* ---- login ------------------------------------------------------------- */
-.login { min-height: 100%; display: grid; place-items: center; padding: 24px; }
-.login__card { width: min(400px, 100%); padding: 28px; display: grid; gap: 16px; }
-.login__brand { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+/* ---- Sign-in ------------------------------------------------------------
+   Two panes on a desktop: what this is on the left, the form on the right.
+   Below 900px the left pane is dropped rather than stacked — on a phone it
+   would push the only thing anyone came here for under the fold. */
+.login {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  background: var(--bg);
+}
+
+.login__aside {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* Centred, not space-between: the list is short, and pushing it to the top
+     left two thirds of the panel visibly empty. */
+  justify-content: center;
+  gap: 32px;
+  padding: 48px;
+  overflow: hidden;
+  color: #ffffff;
+  background: linear-gradient(145deg, #047857 0%, #059669 45%, #0f766e 100%);
+}
+/* A soft bloom so the panel is not a flat slab of green. */
+.login__aside::after {
+  content: "";
+  position: absolute;
+  width: 520px;
+  height: 520px;
+  right: -160px;
+  top: -140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.18), transparent 70%);
+  pointer-events: none;
+}
+.login__aside::before {
+  content: "";
+  position: absolute;
+  width: 420px;
+  height: 420px;
+  left: -180px;
+  bottom: -200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 0, 0, 0.16), transparent 70%);
+  pointer-events: none;
+}
+.login__aside-inner { position: relative; z-index: 1; max-width: 420px; }
+.login__headline { font-size: 34px; font-weight: 800; letter-spacing: -0.5px; margin: 20px 0 4px; }
+.login__tagline { font-size: 15px; opacity: 0.85; margin: 0 0 32px; }
+.login__list { list-style: none; display: grid; gap: 14px; margin: 0; padding: 0; }
+.login__list-item { display: flex; align-items: center; gap: 12px; font-size: 14.5px; opacity: 0.95; }
+.login__tick {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+.login__note {
+  position: absolute;
+  left: 48px;
+  bottom: 40px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.login__panel {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.login__theme {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.login__theme:hover { color: var(--text); border-color: var(--border-strong); }
+
+.login__form { width: min(400px, 100%); display: grid; gap: 18px; }
+/* An elevated surface, because the form was floating on a bare background:
+   against a wide empty panel it read as unfinished rather than minimal. */
+.login__card {
+  padding: 36px 32px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+@media (max-width: 480px) {
+  /* On a phone the card's border just boxes in the whole screen. */
+  .login__card {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+}
+.login__compact-brand { display: none; align-items: center; gap: 14px; }
 .login__logo { border-radius: 12px; }
-.login__title { font-size: 22px; font-weight: 700; }
+.login__title { font-size: 20px; font-weight: 700; }
+.login__intro { margin-bottom: 2px; }
+.login__h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.3px; margin: 0 0 6px; }
+
+/* The icon sits inside the field, so the input is padded around it. */
+.login__input-wrap { position: relative; display: flex; align-items: center; }
+.login__input-icon {
+  position: absolute;
+  left: 13px;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.login__input { padding-left: 40px; height: 48px; font-size: 15px; }
+.login__input--password { padding-right: 44px; }
+.login__reveal {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.login__reveal:hover { color: var(--text); background: var(--surface-raised); }
+.login__hint { margin: 0; font-size: 12px; font-weight: 600; color: var(--warning); }
+
+.login__alert { display: flex; align-items: center; gap: 8px; }
+.login__alert svg { flex: none; }
+
+.login__submit { height: 48px; font-size: 15px; margin-top: 2px; }
+/* Dimmed at 0.55 the primary green read as broken rather than "not yet".
+   Muted instead: clearly inert, clearly not an error. */
+.login__submit:disabled {
+  opacity: 1;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+.login__spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: login-spin 700ms linear infinite;
+}
+@keyframes login-spin { to { transform: rotate(360deg); } }
+
+.login__foot { font-size: 12.5px; text-align: center; margin: 4px 0 0; }
+
+@media (max-width: 900px) {
+  .login { grid-template-columns: 1fr; }
+  .login__aside { display: none; }
+  .login__compact-brand { display: flex; }
+}
+
+/* Respect a user who has asked the OS for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .login__spinner { animation-duration: 2s; }
+}
 
 @media (max-width: 860px) {
   .shell { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
-  .nav { grid-auto-flow: column; overflow-x: auto; }
+  /* Here the sidebar is a bar across the top and the menu is a horizontal
+     rail, so it goes back to sizing itself and scrolling sideways only. */
+  .nav { grid-auto-flow: column; overflow-x: auto; overflow-y: visible; flex: none; min-height: auto; }
   .nav-group, .nav-group__items, .nav-group--open .nav-group__items { display: contents; }
   .nav-group__head { display: none; }
   .nav .nav__link--sub { padding: 10px 12px; }
@@ -971,9 +1309,16 @@ a.link:hover { text-decoration: underline; }
   overflow: hidden;
   background: var(--surface-raised);
 }
-/* Leaflet draws its own panes; keep its controls under the drawer's chrome. */
-.map__canvas .leaflet-pane,
-.map__canvas .leaflet-control { z-index: 1; }
+/* MapLibre's own controls, in the dashboard's colours. */
+.map__canvas .maplibregl-ctrl-group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.map__canvas .maplibregl-ctrl-group button + button { border-top-color: var(--border); }
+.map__canvas .maplibregl-ctrl-attrib { font-size: 11px; }
 .map__controls {
   position: absolute;
   top: 10px;
@@ -998,10 +1343,11 @@ a.link:hover { text-decoration: underline; }
 }
 .map__btn:hover:not(:disabled) { background: var(--surface-raised); color: var(--primary); }
 .map__btn:disabled { opacity: 0.6; cursor: default; }
+.map__btn--on { border-color: var(--primary-border); color: var(--primary); }
 .map__error { margin: 6px 0 0; font-size: 12.5px; color: var(--danger); }
 
-/* Fullscreen: above the drawer (z-index 60) so the map is not framed by the
-   panel it was opened from. */
+/* Fullscreen: above the editor (z-index 60) so the map is not framed by the
+   dialog it was opened from. */
 .map--full {
   position: fixed;
   inset: 0;
@@ -1280,17 +1626,21 @@ a.link:hover { text-decoration: underline; }
   grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   gap: 10px;
 }
-.stat {
+/* Scoped to the drawer. These used to be bare `.stat` rules sitting after
+   the dashboard's, so they quietly won the cascade and rendered the overview
+   cards at drawer size — 19px numbers in a 30px slot. */
+.stat-grid .stat {
   display: grid; gap: 2px;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface-raised) 50%, transparent);
+  box-shadow: none;
 }
-.stat__value { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; }
-.stat__value--danger { color: var(--danger); }
-.stat__label { font-size: 12px; }
-.stat__hint { font-size: 11.5px; }
+.stat-grid .stat__value { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; }
+.stat-grid .stat__value--danger { color: var(--danger); }
+.stat-grid .stat__label { font-size: 12px; text-transform: none; letter-spacing: 0; }
+.stat-grid .stat__hint { font-size: 11.5px; }
 
 /* The forwarded attribution, as a control when there is someone to open. */
 .support-msg__fwd {
@@ -1384,29 +1734,134 @@ a.link:hover { text-decoration: underline; }
   gap: 4px;
 }
 
-/* ---- reported stories ---------------------------------------------------- */
-/* Portrait, because a story is: a landscape crop of one would cut the face
-   out of most of them. */
-.story-cell { display: flex; align-items: center; gap: 12px; min-width: 240px; }
-.story-thumb {
+/* ---- videos -------------------------------------------------------------- */
+/* Portrait, because a reel is: a landscape crop of one cuts the room out of
+   most of them. Replaces the reported-stories block that used to live here —
+   same geometry, since the shape of short-form video has not changed. */
+.media-cell { display: flex; align-items: center; gap: 12px; min-width: 240px; }
+.media-cell__thumb {
   width: 44px; height: 66px; object-fit: cover;
   border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface-raised); display: block;
+  flex: 0 0 auto;
 }
-.story-thumb--text {
-  display: grid; place-items: center;
-  font-size: 11px; color: var(--text-muted);
+.media-cell__thumb--empty { display: grid; place-items: center; color: var(--text-muted); }
+
+/* Bunny's own iframe player, held at 9:16 so the drawer does not jump when
+   it loads. A `<video>` tag cannot play the HLS manifest in Chrome, and the
+   embed is the one URL that works everywhere without a media library in this
+   bundle. */
+.video-embed {
+  position: relative;
+  width: 100%;
+  max-width: 280px;
+  aspect-ratio: 9 / 16;
+  margin: 0 auto 4px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--border);
 }
-/* Sits on the still so a video is not mistaken for a photo. */
-.story-cell a { position: relative; display: inline-block; }
-.story-thumb__badge {
-  position: absolute; inset: 0;
-  display: grid; place-items: center;
-  color: #fff; font-size: 14px;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 8px;
+.video-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.video-embed--empty {
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  padding: 16px;
+  text-align: center;
+  background: var(--surface-raised);
 }
+
+/* A reel beside its facts.
+   The drawer is half a desktop wide; a 9:16 clip stacked above a key/value
+   list used both of those columns for nothing and pushed the decision below
+   the fold. The clip takes a fixed rail, the facts take the rest. */
+.media-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.media-detail .video-embed { max-width: none; margin: 0; }
+.media-detail__facts { display: grid; gap: 12px; align-content: start; }
+.media-detail__caption {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+/* Three figures in a row, each big enough to read at a glance. */
+.media-detail__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.media-detail__stat {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 40%, transparent);
+  font-size: 12.5px;
+}
+.media-detail__statValue { font-size: 18px; font-weight: 700; line-height: 1.1; }
+
+/* The badge and the date on one baseline in a drawer subtitle. */
+.drawer__substatus { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Below this the drawer is too narrow to hold two useful columns, so the
+   clip goes back on top — centred, at the width it was before. */
+@media (max-width: 760px) {
+  .media-detail { grid-template-columns: 1fr; }
+  .media-detail .video-embed { max-width: 280px; margin: 0 auto; }
+}
+
+/* The report queue's quoted complaint. */
+.report-quote {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* A titled block inside a drawer — the complaints under an open video, and
+   anything else that is a list rather than a key/value pair. */
+.drawer-section { margin-top: 18px; display: grid; gap: 10px; }
+.drawer-section__title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.report-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.report-list__item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  font-size: 13px;
+}
+.report-list__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 600;
+}
+/* Inside a card the quote already sits on, the left rule is enough. */
+.report-list__item .report-quote { padding: 2px 0 2px 10px; }
 
 /* ---- verification queue -------------------------------------------------- */
 /* Small enough for three per row, big enough to tell a passport from a
@@ -1433,3 +1888,476 @@ a.link:hover { text-decoration: underline; }
   cursor: pointer;
 }
 .chip-btn:hover { border-color: var(--primary); color: var(--text); }
+
+/* Raw provider JSON in the payment modal — present but folded away, because
+   it is the last resort and not the first thing to read. */
+.payment-raw { margin-top: 12px; }
+.payment-raw > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 0;
+}
+.payment-raw > summary:hover { color: var(--text); }
+.payment-raw pre {
+  margin: 6px 0 0;
+  padding: 12px;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+
+/* ---- map markers (MapLibre DOM markers) --------------------------------- */
+.map-pin { cursor: grab; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); }
+.map-pin:active { cursor: grabbing; }
+.map-vertex {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 3px solid #10b981;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+  transition: transform 120ms ease;
+}
+.map-vertex:hover { transform: scale(1.25); border-color: #ef4444; }
+.map-vertex--first { width: 20px; height: 20px; border-width: 4px; }
+.map-me {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.25);
+}
+
+/* ---- listing editor ------------------------------------------------------ */
+/* A large dialog rather than a side drawer: the map and the photo grid need
+   the width, and the tabs keep a long record to one screen at a time. */
+.editor {
+  width: min(1120px, 100%);
+  height: min(880px, calc(100dvh - 48px));
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-pop);
+  animation: pop-in 160ms ease;
+  overflow: hidden;
+}
+.editor__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.editor__cover {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  border-radius: 12px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.editor__cover img { width: 100%; height: 100%; object-fit: cover; }
+.editor__headings { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.editor__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 750;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.editor__id {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.editor__id:hover { color: var(--primary); }
+
+.editor__main { flex: 1; min-height: 0; display: flex; }
+.editor__tabs {
+  width: 200px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+  overflow-y: auto;
+}
+.editor__tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.editor__tab span:not(.editor__dot) { flex: 1; }
+.editor__tab:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
+.editor__tab:disabled { opacity: 0.5; cursor: default; }
+.editor__tab--active,
+.editor__tab--active:hover:not(:disabled) { background: var(--primary-soft); color: var(--primary); }
+.editor__dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--warning);
+}
+.editor__dot--error { background: var(--danger); }
+
+.editor__body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 22px 28px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.editor__body::-webkit-scrollbar { width: 8px; }
+.editor__body::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.editor__section { display: grid; gap: 14px; align-content: start; max-width: 860px; }
+.editor__lead { margin: 0; font-size: 13.5px; }
+
+.editor__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+.editor__foot-left { margin-right: auto; display: flex; gap: 8px; }
+.editor__state { font-size: 13px; color: var(--text-muted); }
+.editor__state--dirty { color: var(--warning); font-weight: 650; }
+
+/* Overview tiles */
+.stat-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.stat-tile {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+.stat-tile__label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.stat-tile__value { font-size: 15px; font-weight: 700; }
+
+/* Form sections */
+.form-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.form-card__title { margin: 0; font-size: 14px; font-weight: 750; }
+.form-grid--3 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.field__hint { margin: 0; font-size: 12px; color: var(--text-muted); }
+.editor select.input { appearance: none; padding-right: 34px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 55%, calc(100% - 13px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+.input--area { resize: vertical; min-height: 140px; line-height: 1.5; }
+.input--price { font-size: 16px; font-weight: 700; letter-spacing: 0.01em; }
+.segmented--fill { display: flex; width: 100%; }
+.segmented--fill .segmented__btn { flex: 1; }
+
+.choice-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.choice-chip {
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.choice-chip:hover { border-color: var(--primary); }
+.choice-chip--on { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+
+/* Prices */
+.offer-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+.offer-card--on { border-color: var(--primary-border); background: color-mix(in srgb, var(--primary-soft) 45%, var(--surface)); }
+.offer-card__title { font-size: 15px; font-weight: 700; }
+.offer-card__fields { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; align-items: start; }
+
+.offer-toggle { display: inline-flex; align-items: center; gap: 12px; cursor: pointer; width: fit-content; }
+.offer-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.offer-toggle__track {
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  position: relative;
+  transition: background-color 160ms ease;
+  flex: none;
+}
+.offer-toggle__track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 160ms ease;
+}
+.offer-toggle input:checked + .offer-toggle__track { background: var(--primary); }
+.offer-toggle input:checked + .offer-toggle__track::after { transform: translateX(18px); }
+.offer-toggle input:focus-visible + .offer-toggle__track { box-shadow: 0 0 0 3px var(--primary-soft); }
+
+/* Amenities */
+.amenity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.amenity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+.amenity:hover { border-color: var(--primary); }
+.amenity--on { border-color: var(--primary); background: var(--primary-soft); }
+.amenity__check {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--on-primary);
+}
+.amenity--on .amenity__check { background: var(--primary); border-color: var(--primary); }
+
+/* Photos */
+.dropzone {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 2px dashed var(--border-strong);
+  border-radius: 14px;
+  color: var(--text-muted);
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+.dropzone b { color: var(--text); }
+.dropzone p { margin: 2px 0 0; font-size: 13px; }
+.dropzone--over { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+.link-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 650;
+  color: var(--primary);
+  cursor: pointer;
+}
+.link-btn:hover { text-decoration: underline; }
+
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+.photo-tile {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  cursor: grab;
+}
+.photo-tile img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+.photo-tile--cover { outline: 2.5px solid var(--primary); outline-offset: -2.5px; }
+.photo-tile--dragging { opacity: 0.4; }
+.photo-tile--loading { display: grid; place-items: center; cursor: default; }
+.photo-tile__badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.photo-tile__index {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.photo-tile__actions {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.photo-tile:hover .photo-tile__actions,
+.photo-tile:focus-within .photo-tile__actions { opacity: 1; transform: none; }
+.photo-tile__actions button {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #ffffff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.photo-tile__actions button:hover:not(:disabled) { background: var(--primary); }
+.photo-tile__actions button.danger:hover { background: var(--danger); }
+.photo-tile__actions button:disabled { opacity: 0.35; cursor: default; }
+@media (hover: none) {
+  .photo-tile__actions { opacity: 1; transform: none; }
+}
+
+.spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid var(--border-strong);
+  border-top-color: var(--primary);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Location */
+.location-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.location-bar .segmented--fill { width: auto; flex: none; }
+.segmented__btn { white-space: nowrap; }
+.location-hint {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.location-hint--error { background: var(--danger-soft); color: var(--danger-strong); }
+.location-facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--text-muted); }
+.location-facts b { color: var(--text); }
+
+/* Narrow windows: tabs become a scrolling strip above the content. */
+@media (max-width: 820px) {
+  .overlay:has(.editor) { padding: 0; }
+  .editor { height: 100dvh; border-radius: 0; }
+  .editor__main { flex-direction: column; }
+  .editor__tabs {
+    width: auto;
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    padding: 8px;
+  }
+  .editor__tab { flex: none; padding: 8px 12px; }
+  .editor__body { padding: 14px 16px 24px; }
+  .stat-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form-grid--3 { grid-template-columns: 1fr 1fr; }
+  .offer-card__fields { grid-template-columns: 1fr; }
+  .editor__state { display: none; }
+  .editor__foot { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .editor, .spinner { animation: none; }
+}
+.map__canvas--loading { animation: pulse 1.2s ease-in-out infinite alternate; }
+@keyframes pulse { from { opacity: 0.55; } to { opacity: 1; } }
+
+/* The overview photo: wide, but not a whole screen of it. */
+.editor .swiper__slide { aspect-ratio: 16 / 9; max-height: 400px; }

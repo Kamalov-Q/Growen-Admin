@@ -7,13 +7,14 @@ import { Layout } from "./components/Layout";
 import { OverviewPage } from "./pages/OverviewPage";
 import { UsersPage } from "./pages/UsersPage";
 import { ListingsPage } from "./pages/ListingsPage";
+import { VideosPage } from "./pages/VideosPage";
+import { VideoReportsPage } from "./pages/VideoReportsPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
 import { ChatReportsPage } from "./pages/ChatReportsPage";
 import { AmenitiesPage } from "./pages/AmenitiesPage";
 import { TariffsPage } from "./pages/TariffsPage";
 import { BillingPage } from "./pages/BillingPage";
 import { ReportsPage } from "./pages/ReportsPage";
-import { StoryReportsPage } from "./pages/StoryReportsPage";
 import { VerificationPage } from "./pages/VerificationPage";
 import { ReviewsPage } from "./pages/ReviewsPage";
 import { CommentsPage } from "./pages/CommentsPage";
@@ -45,9 +46,10 @@ export default function App() {
               <Route index element={<OverviewPage />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="listings" element={<ListingsPage />} />
+              <Route path="videos" element={<VideosPage />} />
+              <Route path="video-reports" element={<VideoReportsPage />} />
               <Route path="categories" element={<CategoriesPage />} />
               <Route path="chat-reports" element={<ChatReportsPage />} />
-              <Route path="story-reports" element={<StoryReportsPage />} />
               <Route path="verification" element={<VerificationPage />} />
               <Route path="amenities" element={<AmenitiesPage />} />
               <Route path="tariffs" element={<TariffsPage />} />

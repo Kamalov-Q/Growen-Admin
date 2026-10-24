@@ -7,7 +7,7 @@ import { useT } from "../lib/i18n";
 import { toast } from "../lib/toast";
 import { usePaging } from "../lib/usePaging";
 import { confirmDialog } from "../lib/confirm";
-import { ListingDrawer } from "../components/ListingDrawer";
+import { ListingEditor } from "../components/ListingEditor";
 import { CommentDrawer } from "../components/CommentDrawer";
 
 export function CommentsPage() {
@@ -173,7 +173,7 @@ export function CommentsPage() {
         deleting={remove.isPending}
       />
 
-      <ListingDrawer id={openListing} onClose={() => setOpenListing(null)} />
+      <ListingEditor id={openListing} onClose={() => setOpenListing(null)} />
     </>
   );
 }

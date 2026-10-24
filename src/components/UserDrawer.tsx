@@ -1,10 +1,23 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { toast } from "../lib/toast";
-import { adminApi, resolveMediaUrl } from "../lib/api";
-import { dateTime, fullName } from "../lib/format";
+import { adminApi, resolveMediaUrl, SOCIAL_PLATFORMS } from "../lib/api";
+import { date, dateTime, fullName } from "../lib/format";
 import { Avatar, Badge, Drawer, ErrorState, Skeleton } from "./ui";
 import { useT } from "../lib/i18n";
+import { usePlaces, placeLabel } from "../lib/places";
+
+/**
+ * Only MALE and FEMALE can be stored now, but OTHER stays here deliberately:
+ * rows written while it was on offer still hold it, and this drawer reads
+ * history. Keyed loosely so an unknown value falls back to itself rather than
+ * rendering blank.
+ */
+const GENDER_LABEL: Record<string, string> = {
+  MALE: "Erkak",
+  FEMALE: "Ayol",
+  OTHER: "Boshqa",
+};
 
 const PROVIDER_LABEL: Record<string, string> = {
   PHONE: "Telefon",
@@ -28,6 +41,7 @@ export function UserDrawer({
   onClose: () => void;
 }) {
   const t = useT();
+  const { regions } = usePlaces();
   const navigate = useNavigate();
 
   /**
@@ -107,6 +121,60 @@ export function UserDrawer({
               </div>
             </div>
           </div>
+
+          {/* Who they said they are. Only rendered when there is something
+              to render: every account from before these fields existed has
+              none of them, and six empty rows say nothing. */}
+          {data.age !== null ||
+          data.gender ||
+          data.address ||
+          data.bio ||
+          data.socialLinks ? (
+            <div className="panel">
+              <p className="section-title">{t("Shaxsiy ma'lumot")}</p>
+              <div className="kv">
+                {data.age !== null ? (
+                  <>
+                    <span className="muted">{t("Yosh")}</span>
+                    <span>
+                      {data.age} · {date(data.birthDate!)}
+                    </span>
+                  </>
+                ) : null}
+                {data.gender ? (
+                  <>
+                    <span className="muted">{t("Jins")}</span>
+                    <span>{GENDER_LABEL[data.gender] ?? data.gender}</span>
+                  </>
+                ) : null}
+                {data.address ? (
+                  <>
+                    <span className="muted">{t("Manzil")}</span>
+                    <span>{placeLabel(regions, data.address)}</span>
+                  </>
+                ) : null}
+                {data.bio ? (
+                  <>
+                    <span className="muted">{t("O'zi haqida")}</span>
+                    <span>{data.bio}</span>
+                  </>
+                ) : null}
+              </div>
+
+              {data.socialLinks ? (
+                <div className="chips" style={{ marginTop: 10 }}>
+                  {SOCIAL_PLATFORMS.flatMap((p) => {
+                    const handle = data.socialLinks?.[p];
+                    return handle ? (
+                      <Badge key={p} tone="neutral">
+                        {p}: {handle}
+                      </Badge>
+                    ) : [];
+                  })}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {/* The numbers first: they are what the drawer is opened for. */}
           <div className="panel">

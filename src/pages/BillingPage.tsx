@@ -2,6 +2,7 @@ import { useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   adminApi,
+  type AdminAdjustmentRow,
   type AdminPaymentRow,
   type AdminWalletRow,
   type PaymentProvider,
@@ -43,13 +44,169 @@ const STATUS_TONE: Record<string, "success" | "warning" | "neutral" | "danger"> 
   CANCELLED: "danger",
 };
 
+/** Epoch milliseconds, as the payment providers send them. */
+const providerTime = (ms: string | null) =>
+  ms ? new Date(Number(ms)).toLocaleString("ru-RU") : "—";
+
+/**
+ * The half of a payment the table cannot show.
+ *
+ * Fetched per modal rather than per row: `providerPayload` and
+ * `fiscalResponse` are jsonb, and pulling twenty of them to render one would
+ * be wasteful. The ledger comes first because it answers the question that
+ * actually brings somebody to this screen — the status says PAID, so did the
+ * money reach the wallet?
+ */
+function PaymentExtras({ id }: { id: string }) {
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["admin", "payment", id],
+    queryFn: () => adminApi.payment(id),
+  });
+
+  if (isLoading) return <Skeleton width="100%" height={120} />;
+  if (isError || !data)
+    return <ErrorState error={error} onRetry={() => void refetch()} />;
+
+  const expected = Number(data.amount) + Number(data.bonusAmount ?? 0);
+  const credited = Number(data.credited);
+  // Only meaningful once the payment is supposed to have moved money.
+  const mismatch = data.status === "PAID" && credited !== expected;
+
+  return (
+    <>
+      <p className="section-title" style={{ marginTop: 18 }}>
+        Hisobga tushgani
+      </p>
+
+      {mismatch ? (
+        <p className="alert" role="alert">
+          To'lov PAID, lekin hisobga {soms(credited)} tushgan — kutilgani{" "}
+          {soms(expected)}.
+        </p>
+      ) : null}
+
+      {data.ledger.length === 0 ? (
+        <p className="muted">
+          {data.status === "PAID"
+            ? "Hisobga hech narsa tushmagan — bu xato."
+            : "Hali hisobga tushmagan."}
+        </p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Turi</th>
+              <th>Summa</th>
+              <th>Keyingi balans</th>
+              <th>Vaqti</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.ledger.map((row) => (
+              <tr key={row.id}>
+                <td>{row.kind}</td>
+                <td>{soms(row.amount)}</td>
+                <td>{soms(row.balanceAfter)}</td>
+                <td>{dateTime(row.createdAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <p className="section-title" style={{ marginTop: 18 }}>
+        Qo'shimcha ma'lumot
+      </p>
+      <div className="form-grid">
+        <div className="field">
+          <span className="field__label">Idempotentlik kaliti (clientId)</span>
+          <div className="input mono">{data.clientId ?? "—"}</div>
+        </div>
+        <div className="field">
+          <span className="field__label">Provider hujjat ID</span>
+          <div className="input mono">{data.providerDocId ?? "—"}</div>
+        </div>
+
+        <div className="field">
+          <span className="field__label">Provider: yaratildi</span>
+          <div className="cell-main">{providerTime(data.providerCreateTime)}</div>
+        </div>
+        <div className="field">
+          <span className="field__label">Provider: bajarildi</span>
+          <div className="cell-main">{providerTime(data.providerPerformTime)}</div>
+        </div>
+
+        <div className="field">
+          <span className="field__label">Provider: bekor qilindi</span>
+          <div className="cell-main">{providerTime(data.providerCancelTime)}</div>
+        </div>
+        <div className="field">
+          <span className="field__label">Bekor qilingan vaqt</span>
+          <div className="cell-main">{dateTime(data.cancelledAt)}</div>
+        </div>
+
+        <div className="field">
+          <span className="field__label">Fiskal urinishlar</span>
+          <div className="cell-main">{data.fiscalAttempts}</div>
+        </div>
+        <div className="field">
+          <span className="field__label">Oxirgi o'zgarish</span>
+          <div className="cell-main">{dateTime(data.updatedAt)}</div>
+        </div>
+      </div>
+
+      {/* Raw, and collapsed: the definitive record of what the provider
+          actually sent, for the cases the fields above cannot explain. */}
+      {data.fiscalResponse ? (
+        <details className="payment-raw">
+          <summary>Fiskal javobi (xom)</summary>
+          <pre className="mono">{JSON.stringify(data.fiscalResponse, null, 2)}</pre>
+        </details>
+      ) : null}
+      {data.providerPayload ? (
+        <details className="payment-raw">
+          <summary>Provider javobi (xom)</summary>
+          <pre className="mono">{JSON.stringify(data.providerPayload, null, 2)}</pre>
+        </details>
+      ) : null}
+    </>
+  );
+}
+
 const soms = (value: string | number) =>
   `${Number(value || 0).toLocaleString("ru-RU")} so'm`;
 
+/** A signed amount, so a debit reads as one at a glance. */
+const signedSoms = (value: string | number) => {
+  const n = Number(value || 0);
+  return `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n).toLocaleString("ru-RU")} so'm`;
+};
+
+/** Whatever we know this person by, in the order a human would pick. */
+const personTitle = (p: {
+  userId: string;
+  userName: string | null;
+  userSurname: string | null;
+  userPhone: string | null;
+}) =>
+  [p.userName, p.userSurname].filter(Boolean).join(" ") ||
+  p.userPhone ||
+  p.userId.slice(0, 8);
+
 export function BillingPage() {
   const t = useT();
-  const [activeTab, setActiveTab] = useState<"payments" | "wallets">("payments");
+  const [activeTab, setActiveTab] = useState<"payments" | "wallets" | "adjustments">(
+    "payments",
+  );
   const [openUser, setOpenUser] = useState<string | null>(null);
+  /**
+   * Set when the history was opened from one wallet's "Tarix" button, so the
+   * audit tab starts scoped to that person. Cleared by the chip it renders —
+   * the tab is also a standalone view of every adjustment.
+   */
+  const [auditUser, setAuditUser] = useState<{ id: string; label: string } | null>(
+    null,
+  );
 
   return (
     <>
@@ -72,12 +229,33 @@ export function BillingPage() {
           >
             {t("Foydalanuvchi hamyonlari")}
           </button>
+          <button
+            className={`segmented__btn${activeTab === "adjustments" ? " segmented__btn--active" : ""}`}
+            onClick={() => {
+              setAuditUser(null);
+              setActiveTab("adjustments");
+            }}
+          >
+            {t("Qo'lda o'zgartirishlar")}
+          </button>
         </div>
 
         {activeTab === "payments" ? (
           <PaymentsLedger onOpenUser={setOpenUser} />
+        ) : activeTab === "wallets" ? (
+          <WalletsLedger
+            onOpenUser={setOpenUser}
+            onOpenHistory={(w) => {
+              setAuditUser({ id: w.userId, label: personTitle(w) });
+              setActiveTab("adjustments");
+            }}
+          />
         ) : (
-          <WalletsLedger onOpenUser={setOpenUser} />
+          <AdjustmentsLedger
+            user={auditUser}
+            onClearUser={() => setAuditUser(null)}
+            onOpenUser={setOpenUser}
+          />
         )}
       </div>
 
@@ -374,6 +552,11 @@ function PaymentsLedger({ onOpenUser }: { onOpenUser: (id: string) => void }) {
               </div>
             ) : null}
           </div>
+
+          {/* Everything the table does not carry, fetched when the modal
+              opens: the ledger this payment produced, the provider's own
+              timestamps, the fiscal attempt log and the raw callback. */}
+          <PaymentExtras id={inspecting.id} />
         </Modal>
       ) : null}
     </>
@@ -382,7 +565,13 @@ function PaymentsLedger({ onOpenUser }: { onOpenUser: (id: string) => void }) {
 
 // ─── WALLETS LEDGER ──────────────────────────────────────────────────────────
 
-function WalletsLedger({ onOpenUser }: { onOpenUser: (id: string) => void }) {
+function WalletsLedger({
+  onOpenUser,
+  onOpenHistory,
+}: {
+  onOpenUser: (id: string) => void;
+  onOpenHistory: (wallet: AdminWalletRow) => void;
+}) {
   const t = useT();
   const queryClient = useQueryClient();
   const { offset, setOffset, limit, setLimit } = usePaging();
@@ -463,6 +652,12 @@ function WalletsLedger({ onOpenUser }: { onOpenUser: (id: string) => void }) {
                           <td>
                             <div className="row-actions" style={{ justifyContent: "flex-end" }}>
                               <button
+                                className="btn btn--ghost btn--sm"
+                                onClick={() => onOpenHistory(w)}
+                              >
+                                {t("Tarix")}
+                              </button>
+                              <button
                                 className="btn btn--primary btn--sm"
                                 onClick={() => setAdjusting(w)}
                               >
@@ -500,10 +695,216 @@ function WalletsLedger({ onOpenUser }: { onOpenUser: (id: string) => void }) {
             setAdjusting(null);
             void queryClient.invalidateQueries({ queryKey: ["admin", "wallets"] });
             void queryClient.invalidateQueries({ queryKey: ["admin", "payments"] });
+            // The adjustment that just landed belongs at the top of the audit
+            // tab, whether or not it is the tab currently on screen.
+            void queryClient.invalidateQueries({ queryKey: ["admin", "adjustments"] });
           }}
         />
       ) : null}
     </>
+  );
+}
+
+// ─── MANUAL ADJUSTMENTS (AUDIT TRAIL) ────────────────────────────────────────
+
+const DIRECTIONS: { id: "" | "credit" | "debit"; label: string }[] = [
+  { id: "", label: "Barchasi" },
+  { id: "credit", label: "Qo'shilgan" },
+  { id: "debit", label: "Yechilgan" },
+];
+
+/**
+ * Who moved whose balance, by how much, and why.
+ *
+ * The adjust dialog tells the admin their note is kept for the audit log;
+ * this is that log. Rows come from the ledger itself, so what is listed here
+ * is exactly what moved the money — there is no second record to drift.
+ *
+ * The note gets a column of its own rather than a tooltip: a reason nobody
+ * can read without hovering is a reason nobody reads.
+ */
+function AdjustmentsLedger({
+  user,
+  onClearUser,
+  onOpenUser,
+}: {
+  user: { id: string; label: string } | null;
+  onClearUser: () => void;
+  onOpenUser: (id: string) => void;
+}) {
+  const t = useT();
+  const [direction, setDirection] = useState<"" | "credit" | "debit">("");
+  const { offset, setOffset, limit, setLimit } = usePaging();
+
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["admin", "adjustments", user?.id ?? "", direction, offset, limit],
+    queryFn: () =>
+      adminApi.walletAdjustments({
+        userId: user?.id,
+        direction: direction || undefined,
+        limit,
+        offset,
+      }),
+    placeholderData: keepPreviousData,
+  });
+
+  if (isError) return <ErrorState error={error} onRetry={() => void refetch()} />;
+
+  return (
+    <div className="card">
+      <div
+        className="card__toolbar"
+        style={{ flexWrap: "wrap", gap: 12, justifyContent: "space-between" }}
+      >
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <div className="segmented">
+            {DIRECTIONS.map((d) => (
+              <button
+                key={d.id || "all"}
+                className={`segmented__btn${direction === d.id ? " segmented__btn--active" : ""}`}
+                onClick={() => {
+                  setDirection(d.id);
+                  setOffset(0);
+                }}
+              >
+                {t(d.label)}
+              </button>
+            ))}
+          </div>
+
+          {/* Scoped to one wallet, and says so — otherwise an empty table
+              here reads as "nobody has ever been adjusted". */}
+          {user ? (
+            <button
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                onClearUser();
+                setOffset(0);
+              }}
+              title={t("Filtrni olib tashlash")}
+            >
+              {user.label} ×
+            </button>
+          ) : null}
+        </div>
+
+        {data ? (
+          <span className="muted">
+            {`Jami ${data.total.toLocaleString("ru-RU")} ta amal`}
+            {" · "}
+            <span style={{ color: "#10B981" }}>+{soms(data.credited)}</span>
+            {" · "}
+            <span style={{ color: "#EF4444" }}>−{soms(data.debited)}</span>
+          </span>
+        ) : (
+          <span className="muted"> </span>
+        )}
+      </div>
+
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Foydalanuvchi</th>
+              <th>O'zgarish</th>
+              <th>Keyingi balans</th>
+              <th>Izoh</th>
+              <th>Admin</th>
+              <th>Sana</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading
+              ? Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 6 }).map((__, c) => (
+                      <td key={c}>
+                        <Skeleton width="70%" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              : data?.items.map((r) => <AdjustmentRow key={r.id} row={r} onOpenUser={onOpenUser} />)}
+          </tbody>
+        </table>
+      </div>
+
+      {!isLoading && !data?.items.length ? (
+        <EmptyState
+          title={t(
+            user || direction
+              ? "Bunday o'zgartirishlar topilmadi"
+              : "Hali qo'lda o'zgartirishlar bo'lmagan",
+          )}
+          hint={t(
+            user || direction
+              ? "Boshqa filtrlarni tanlab ko'ring."
+              : "Hamyon balansi qo'lda o'zgartirilsa, shu yerda qoladi.",
+          )}
+        />
+      ) : null}
+
+      <Pager
+        offset={offset}
+        limit={limit}
+        total={data?.total ?? 0}
+        onChange={setOffset}
+        onLimitChange={setLimit}
+      />
+    </div>
+  );
+}
+
+function AdjustmentRow({
+  row,
+  onOpenUser,
+}: {
+  row: AdminAdjustmentRow;
+  onOpenUser: (id: string) => void;
+}) {
+  const credited = Number(row.amount) > 0;
+  const adminTitle =
+    [row.adminName, row.adminSurname].filter(Boolean).join(" ") ||
+    row.adminPhone ||
+    (row.adminId ? row.adminId.slice(0, 8) : null);
+
+  return (
+    <tr>
+      <td>
+        <button className="person-link" onClick={() => onOpenUser(row.userId)}>
+          <div>
+            <div className="cell-main">{personTitle(row)}</div>
+            <div className="muted">{row.userPhone ?? row.userId.slice(0, 8)}</div>
+          </div>
+        </button>
+      </td>
+      <td>
+        <Badge tone={credited ? "success" : "danger"}>
+          {signedSoms(row.amount)}
+        </Badge>
+      </td>
+      <td>
+        <div className="cell-main" style={{ fontWeight: 600 }}>
+          {soms(row.balanceAfter)}
+        </div>
+      </td>
+      <td style={{ maxWidth: 320, whiteSpace: "normal" }}>
+        {row.note ? row.note : <span className="muted">—</span>}
+      </td>
+      <td>
+        {/* Null only for rows written before admin_id existed — saying so is
+            better than a blank cell that looks like a bug. */}
+        {adminTitle ? (
+          <div className="cell-main">{adminTitle}</div>
+        ) : (
+          <span className="muted">Noma'lum</span>
+        )}
+      </td>
+      <td className="muted nowrap">
+        <div>{date(row.createdAt)}</div>
+        <div style={{ fontSize: 11.5 }}>{dateTime(row.createdAt)}</div>
+      </td>
+    </tr>
   );
 }
 
@@ -522,6 +923,13 @@ function AdjustWalletModal({
   const [operation, setOperation] = useState<"CREDIT" | "DEBIT">("CREDIT");
   const [amountStr, setAmountStr] = useState("");
   const [note, setNote] = useState("");
+  /**
+   * One key per open dialog, so every retry of THIS adjustment carries the
+   * same one and the money moves once however many times the button is hit
+   * or the request is re-sent. A fresh dialog means a fresh key, because
+   * crediting the same person twice on purpose must stay possible.
+   */
+  const [clientId] = useState(() => crypto.randomUUID());
 
   const userTitle =
     [wallet.userName, wallet.userSurname].filter(Boolean).join(" ") ||
@@ -544,12 +952,17 @@ function AdjustWalletModal({
       adminApi.adjustWallet(wallet.userId, {
         amount: delta,
         note: note.trim(),
+        clientId,
       }),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      // `repeated` means the server already had this key — the first attempt
+      // landed after all. Saying "added" again would imply a second credit.
       toast.success(
-        operation === "CREDIT"
-          ? `${soms(numAmount)} hisobga qo'shildi`
-          : `${soms(numAmount)} hisobdan yechildi`
+        result.repeated
+          ? t("Bu amal allaqachon bajarilgan")
+          : operation === "CREDIT"
+            ? `${soms(numAmount)} hisobga qo'shildi`
+            : `${soms(numAmount)} hisobdan yechildi`
       );
       onSuccess();
     },

@@ -2,7 +2,12 @@
 <html lang="uz">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/emblem.png" />
+    <!-- SVG first: the mark stays crisp at 16px in the tab strip; the PNG is
+         the fallback for browsers that ignore SVG favicons. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" type="image/png" href="/emblem.png" />
+    <link rel="apple-touch-icon" href="/emblem.png" />
+    <meta name="theme-color" content="#102E33" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

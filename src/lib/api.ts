@@ -5,7 +5,15 @@
 // error instead of a spinner that never ends.
 import { sessionStore, type AdminUser } from "./session";
 
-export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+// The server uses a global /api prefix; append it here so all requests
+// automatically go to /api/... without changing any individual call site.
+// VITE_API_URL should be the bare origin, e.g. https://api.growencity.uz
+const _apiBase = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+/** Bare server origin — use for resolving media URLs from the CDN/static paths. */
+export const API_ORIGIN = _apiBase.replace(/\/+$/, "");
+/** All REST endpoints are prefixed with /api. Use this for api() calls. */
+export const API_URL = API_ORIGIN + "/api";
+
 
 const REQUEST_TIMEOUT_MS = 20_000;
 
@@ -251,14 +259,38 @@ export const adminApi = {
     offset?: number;
   }) => api<Page<AdminPaymentRow>>(`/admin/payments?${qs(params)}`),
 
+  /** One payment in full, with the ledger rows it produced. */
+  payment: (id: string) => api<AdminPaymentDetail>(`/admin/payments/${id}`),
+
   wallets: (params: { limit?: number; offset?: number }) =>
     api<Page<AdminWalletRow>>(`/admin/wallets?${qs(params)}`),
 
-  adjustWallet: (userId: string, body: { amount: number; note: string }) =>
-    api<{ userId: string; balance: string }>(`/admin/wallets/${userId}/adjust`, {
-      method: "POST",
-      body,
-    }),
+  /**
+   * Every manual balance change, newest first. The totals are for the whole
+   * filtered set rather than the page on screen — "how much has been handed
+   * out by hand" should not change as the pager moves.
+   */
+  walletAdjustments: (params: {
+    userId?: string;
+    adminId?: string;
+    direction?: "credit" | "debit";
+    limit?: number;
+    offset?: number;
+  }) => api<AdjustmentsPage>(`/admin/wallet-adjustments?${qs(params)}`),
+
+  /**
+   * `clientId` makes the adjustment idempotent: send the same key when
+   * retrying and the money moves once. `repeated` comes back true when the
+   * server recognised the key and returned the earlier result.
+   */
+  adjustWallet: (
+    userId: string,
+    body: { amount: number; note: string; clientId?: string },
+  ) =>
+    api<{ userId: string; balance: string; repeated?: boolean }>(
+      `/admin/wallets/${userId}/adjust`,
+      { method: "POST", body },
+    ),
 
   // ---- reports ------------------------------------------------------------
 
@@ -301,26 +333,6 @@ export const adminApi = {
       { method: "POST", body: { reason } },
     ),
 
-  // ---- story reports ------------------------------------------------------
-  // A story is public while it is up, so nothing here is privileged access —
-  // but a report outlives the story, which is why the row carries its own
-  // copy of what was posted.
-
-  storyReports: (params: { status?: string; limit?: number; offset?: number }) =>
-    api<Page<AdminStoryReport>>(`/admin/story-reports?${qs(params)}`),
-
-  setStoryReportStatus: (id: string, status: "OPEN" | "RESOLVED" | "DISMISSED") =>
-    api<AdminStoryReport>(`/admin/story-reports/${id}/status`, {
-      method: "PATCH",
-      body: { status },
-    }),
-
-  /** Takes the story down; the report stays in the queue either way. */
-  removeReportedStory: (storyId: string) =>
-    api<{ deleted: string }>(`/admin/story-reports/${storyId}/story`, {
-      method: "DELETE",
-    }),
-
   // ---- chat reports -------------------------------------------------------
   // A reported conversation is the ONLY chat an admin can open: the API has no
   // endpoint that takes a conversation id, so unreported chats stay private.
@@ -334,6 +346,70 @@ export const adminApi = {
     api<AdminChatReport>(`/admin/chat-reports/${id}/status`, {
       method: "PATCH",
       body: { status },
+    }),
+
+  // ---- videos -------------------------------------------------------------
+  // Short-form video: the Videos tab in the app, and the clip that can hang
+  // off a listing. Everyone can post, which is why the two pages below exist
+  // rather than being a nice-to-have.
+
+  videos: (params: {
+    status?: string;
+    authorId?: string;
+    listingId?: string;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  }) => api<Page<AdminVideo>>(`/admin/videos?${qs(params)}`),
+
+  video: (id: string) => api<AdminVideo>(`/admin/videos/${id}`),
+
+  /**
+   * Fix a caption, or clear a wrong listing link.
+   *
+   * The only two things about a reel that can be WRONG rather than against
+   * the rules. A clip that should not be up at all is `removeVideo`, not an
+   * edit — moderation rewriting footage is not a thing, and the server will
+   * not accept anything else anyway.
+   */
+  updateVideo: (
+    id: string,
+    body: { caption?: string; listingId?: string | null },
+  ) => api<AdminVideo>(`/admin/videos/${id}`, { method: "PATCH", body }),
+
+  /** Takes it out of the feed. The file is deleted at Bunny a month later. */
+  removeVideo: (id: string, reason?: string) =>
+    api<{ success: boolean }>(`/admin/videos/${id}`, {
+      method: "DELETE",
+      body: reason ? { reason } : {},
+    }),
+
+  videoReports: (params: {
+    status?: string;
+    videoId?: string;
+    limit?: number;
+    offset?: number;
+  }) => api<Page<AdminVideoReport>>(`/admin/video-reports?${qs(params)}`),
+
+  openVideoReports: () =>
+    api<{ count: number }>("/admin/video-reports/open-count"),
+
+  /**
+   * Uphold or dismiss one report. `removeVideo` takes the clip down in the
+   * same call — upholding a complaint and acting on it are one decision, and
+   * upholding also closes the other open reports about the same video.
+   */
+  resolveVideoReport: (
+    id: string,
+    body: {
+      status: "RESOLVED" | "DISMISSED";
+      note?: string;
+      removeVideo?: boolean;
+    },
+  ) =>
+    api<AdminVideoReport>(`/admin/video-reports/${id}`, {
+      method: "PATCH",
+      body,
     }),
 
   // ---- reviews ------------------------------------------------------------
@@ -426,6 +502,12 @@ export const adminApi = {
   updateListing: (id: string, body: AdminListingPatch) =>
     api<AdminListingDetail>(`/admin/listings/${id}`, { method: "PATCH", body }),
 
+  updateListingImages: (id: string, images: ListingImageInput[]) =>
+    api<AdminListingDetail>(`/admin/listings/${id}/images`, {
+      method: "PUT",
+      body: { images },
+    }),
+
   setListingStatus: (id: string, status: "ACTIVE" | "ARCHIVED") =>
     api<AdminListingDetail>(`/admin/listings/${id}/status`, {
       method: "PATCH",
@@ -475,38 +557,24 @@ export interface AdminVerificationRequest {
   } | null;
 }
 
-export interface AdminStoryReport {
-  id: string;
-  storyId: string;
-  reason: string;
-  comment: string | null;
-  status: "OPEN" | "RESOLVED" | "DISMISSED";
-  createdAt: string;
-  /** False once the story has expired or been taken down — nothing left to
-   *  remove, only a decision to record. */
-  stillLive: boolean;
-  /** The report's own copy of what was posted, kept so the queue still means
-   *  something after the story is gone. */
-  story: {
-    type: "IMAGE" | "VIDEO" | "TEXT";
-    mediaUrl: string | null;
-    thumbUrl: string | null;
-    body: string | null;
-  };
-  author: AdminStoryPerson | null;
-  reporter: AdminStoryPerson | null;
-}
-
-export interface AdminStoryPerson {
-  id: string;
-  name: string | null;
-  surname: string | null;
-  phoneNumber: string | null;
-  avatarThumbUrl: string | null;
-}
-
-/** Mirrors the server's TARIFF_ACTIONS: the ones it charges automatically. */
-export const TARIFF_ACTIONS = ["LISTING_POST", "STORY_POST", "LISTING_PROMOTE"] as const;
+/**
+ * Mirrors the server's TARIFF_ACTIONS (billing.constants.ts): the actions it
+ * charges for by itself.
+ *
+ * STORY_POST was one of these until stories came out of the product — the
+ * server dropped it from this list too. A tariff still sitting in the table
+ * under that code is simply not built-in any more: it shows up as a custom
+ * code, which stays editable and deletable, but nothing can create a new one.
+ *
+ * VIDEO_POST took its place. It is charged when Bunny confirms the encoded
+ * file, not when the upload starts, so the price set here is what the app
+ * promises on the upload screen for a charge that happens a minute later.
+ */
+export const TARIFF_ACTIONS = [
+  "LISTING_POST",
+  "LISTING_PROMOTE",
+  "VIDEO_POST",
+] as const;
 export const isBuiltInAction = (action: string) =>
   (TARIFF_ACTIONS as readonly string[]).includes(action);
 
@@ -577,6 +645,36 @@ export interface AdminPaymentRow {
   userPhone: string | null;
 }
 
+/** One ledger entry a payment produced. */
+export interface AdminPaymentLedgerRow {
+  id: string;
+  kind: string;
+  amount: string;
+  balanceAfter: string;
+  note: string | null;
+  createdAt: string;
+}
+
+/**
+ * Everything about one payment, fetched when the detail modal opens.
+ *
+ * `ledger` and `credited` are the part the list cannot answer: whether the
+ * money actually reached the wallet. A PAID payment with an empty ledger is
+ * the failure mode worth seeing.
+ */
+export interface AdminPaymentDetail extends AdminPaymentRow {
+  clientId: string | null;
+  providerPayload: Record<string, unknown> | null;
+  providerCreateTime: string | null;
+  providerPerformTime: string | null;
+  providerCancelTime: string | null;
+  fiscalAttempts: number;
+  fiscalResponse: Record<string, unknown> | null;
+  updatedAt: string;
+  credited: string;
+  ledger: AdminPaymentLedgerRow[];
+}
+
 export interface AdminWalletRow {
   userId: string;
   balance: string;
@@ -584,6 +682,38 @@ export interface AdminWalletRow {
   userName: string | null;
   userSurname: string | null;
   userPhone: string | null;
+}
+
+/**
+ * One manual balance change, read back out of the ledger it was written to.
+ * `amount` carries the sign: positive credited the wallet, negative took it
+ * back. `adminName`/`adminPhone` are null only for rows written before the
+ * admin was recorded.
+ */
+export interface AdminAdjustmentRow {
+  id: string;
+  userId: string;
+  adminId: string | null;
+  amount: string;
+  balanceAfter: string;
+  note: string | null;
+  clientId: string | null;
+  createdAt: string;
+  userName: string | null;
+  userSurname: string | null;
+  userPhone: string | null;
+  adminName: string | null;
+  adminSurname: string | null;
+  adminPhone: string | null;
+}
+
+export interface AdjustmentsPage extends Page<AdminAdjustmentRow> {
+  limit: number;
+  offset: number;
+  /** Sum of the credits in the filtered set, as a positive number. */
+  credited: string;
+  /** Sum of the debits, also positive — the sign lives in the label. */
+  debited: string;
 }
 
 export interface AmenityInput {
@@ -604,7 +734,7 @@ export interface AdminAmenity {
 
 /** API-relative media paths (avatars, listing photos) need the origin back. */
 export const resolveMediaUrl = (url: string | null | undefined) =>
-  !url ? undefined : /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `${API_URL}${url.startsWith("/") ? "" : "/"}${url}`;
+  !url ? undefined : /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `${API_ORIGIN}${url.startsWith("/") ? "" : "/"}${url}`;
 
 const qs = (params: Record<string, string | number | undefined>) =>
   new URLSearchParams(
@@ -627,8 +757,20 @@ export interface Overview {
   };
   reports?: { open: number };
   chatReports?: { open: number };
-  storyReports?: { open: number };
   verification?: { pending: number };
+  /**
+   * Optional like the rest: a dashboard pointed at a server that predates
+   * video should lose these numbers, not the whole page.
+   */
+  videos?: {
+    total: number;
+    published: number;
+    /** Encoded, valid, and waiting for a wallet. A pile of it is a price problem. */
+    awaitingPayment: number;
+    failed: number;
+    newThisWeek: number;
+  };
+  videoReports?: { open: number };
 }
 
 export interface Page<T> {
@@ -646,10 +788,35 @@ export interface AdminUserRow {
   role: "USER" | "ADMIN";
   status: string;
   isVerifiedRealtor: boolean;
+  /**
+   * What the user told us about themselves at registration.
+   *
+   * `age` is derived server-side from `birthDate` so it never goes stale.
+   * These five are NOT on the public profile the app serves — moderation is
+   * the case they were collected for, and this dashboard is the only place
+   * they are shown.
+   */
+  birthDate: string | null;
+  age: number | null;
+  gender: "MALE" | "FEMALE" | null;
+  address: string | null;
+  bio: string | null;
+  socialLinks: Partial<Record<SocialPlatform, string>> | null;
   isOnline: boolean;
   lastSeenAt: string | null;
   createdAt: string;
 }
+
+export const SOCIAL_PLATFORMS = [
+  "tiktok",
+  "instagram",
+  "facebook",
+  "x",
+  "threads",
+  "whatsapp",
+] as const;
+
+export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
 export interface AdminListingRow {
   id: string;
@@ -666,19 +833,67 @@ export interface AdminListingRow {
   ratingCount: number;
   /** Distinct viewers — one per person, not per page open. */
   viewCount: number;
+  /**
+   * When the paid TOP placement runs out. Null if never promoted; a date in
+   * the past means it was, and expired — worth seeing, since somebody paid
+   * once and may pay again.
+   */
+  promotedUntil: string | null;
   offers?: { purpose: string; price: string; currency: string; isActive: boolean }[];
   owner: { id: string; name: string | null; surname: string | null; phoneNumber: string | null } | null;
 }
 
-/** The fields the drawer's edit form is allowed to change. */
+export type OfferPurpose = "SALE" | "RENT_MONTHLY" | "RENT_DAILY";
+export type SellerType = "OWNER" | "REALTOR";
+export type BuildingType = "NEW" | "SECONDARY";
+export type RepairType =
+  | "NEEDS_REPAIR"
+  | "AVERAGE"
+  | "COSMETIC"
+  | "EURO"
+  | "DESIGNER"
+  | "CAPITAL";
+
+/** One price as PATCH /admin/listings/:id takes it. */
+export interface OfferInput {
+  purpose: OfferPurpose;
+  price: number;
+  currency: "USD" | "UZS";
+}
+
+/**
+ * Everything PATCH /admin/listings/:id can change — the owner's update DTO.
+ * `null` clears a field; a key left out is not touched. `offers` replaces the
+ * whole price set; `coordinates` (an outline) and `point` (a pin) are
+ * alternatives, never both.
+ */
 export interface AdminListingPatch {
-  title?: string;
-  address?: string;
-  rooms?: number;
-  floor?: number;
-  totalFloors?: number;
-  contactPhone?: string;
-  areaM2?: number;
+  category?: string;
+  title?: string | null;
+  descriptionHtml?: string | null;
+  sellerType?: SellerType | null;
+  buildingType?: BuildingType | null;
+  repairType?: RepairType | null;
+  rooms?: number | null;
+  areaM2?: number | null;
+  floor?: number | null;
+  totalFloors?: number | null;
+  address?: string | null;
+  contactPhone?: string | null;
+  properties?: string[];
+  offers?: OfferInput[];
+  coordinates?: [number, number][][];
+  point?: [number, number];
+}
+
+/** One photo as PUT /admin/listings/:id/images takes it. */
+export interface ListingImageInput {
+  url: string;
+  thumbUrl: string;
+  width?: number;
+  height?: number;
+  position: number;
+  isPrimary: boolean;
 }
 
 export interface AdminListingDetail {
@@ -688,16 +903,9 @@ export interface AdminListingDetail {
   category: string;
   address: string | null;
   rooms: number | null;
-  sellerType: "OWNER" | "REALTOR" | null;
-  buildingType: "NEW" | "SECONDARY" | null;
-  repairType:
-    | "NEEDS_REPAIR"
-    | "AVERAGE"
-    | "COSMETIC"
-    | "EURO"
-    | "DESIGNER"
-    | "CAPITAL"
-    | null;
+  sellerType: SellerType | null;
+  buildingType: BuildingType | null;
+  repairType: RepairType | null;
   areaM2: string | null;
   floor: number | null;
   totalFloors: number | null;
@@ -720,10 +928,18 @@ export interface AdminListingDetail {
     id: string;
     url: string;
     thumbUrl: string | null;
+    width?: number | null;
+    height?: number | null;
     isPrimary?: boolean;
     position?: number;
   }[];
-  offers?: { id: string; purpose: string; price: string; currency: string; isActive: boolean }[];
+  offers?: {
+    id: string;
+    purpose: OfferPurpose;
+    price: string;
+    currency: "USD" | "UZS";
+    isActive: boolean;
+  }[];
   owner: { id: string; name: string | null; surname: string | null; phoneNumber: string | null } | null;
 }
 
@@ -971,4 +1187,78 @@ export interface AdminChatReportDetail extends AdminChatReport {
   reportedMessageId: string | null;
   /** True when older messages were cut off (the newest 300 are returned). */
   truncated: boolean;
+}
+
+/** The seven states a video can be in. Only READY is public. */
+export type AdminVideoStatus =
+  | "UPLOADING"
+  | "AWAITING_PAYMENT"
+  | "READY"
+  | "FAILED"
+  | "EXPIRED"
+  | "REMOVED";
+
+/**
+ * One row of the Videolar table.
+ *
+ * `hlsUrl` and `thumbUrl` come from Bunny's CDN and are null until the file
+ * is playable — which is exactly how a stuck upload looks from here.
+ */
+export interface AdminVideo {
+  id: string;
+  authorId: string;
+  listingId: string | null;
+  status: AdminVideoStatus;
+  failReason: string | null;
+  caption: string | null;
+  durationSec: number | null;
+  width: number | null;
+  height: number | null;
+  hlsUrl: string | null;
+  thumbUrl: string | null;
+  /** Bunny's iframe player — what the drawer below plays the clip in. */
+  embedUrl: string | null;
+  likeCount: number;
+  commentCount: number;
+  viewCount: number;
+  likedByMe: boolean;
+  publishedAt: string | null;
+  createdAt: string;
+  author: {
+    id: string;
+    name: string | null;
+    surname: string | null;
+    avatarThumbUrl: string | null;
+    isVerifiedRealtor: boolean;
+  } | null;
+  listing: {
+    id: string;
+    title: string | null;
+    thumbUrl: string | null;
+    price: string | null;
+    currency: string | null;
+    purpose: string | null;
+  } | null;
+}
+
+export interface AdminVideoReport {
+  id: string;
+  reason: string;
+  comment: string | null;
+  status: "OPEN" | "RESOLVED" | "DISMISSED";
+  resolutionNote: string | null;
+  createdAt: string;
+  video: {
+    id: string;
+    authorId: string | null;
+    caption: string | null;
+    status: AdminVideoStatus | null;
+    listingId: string | null;
+  };
+  reporter: {
+    id: string;
+    name: string | null;
+    surname: string | null;
+    phoneNumber: string | null;
+  } | null;
 }

@@ -1,113 +1,300 @@
 import { useEffect, useRef, useState } from "react";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import {
+  AttributionControl,
+  LngLatBounds,
+  Map as MapLibreMap,
+  Marker,
+  NavigationControl,
+  setWorkerUrl,
+  type GeoJSONSource,
+  type MapMouseEvent,
+} from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+// MapLibre finds its worker next to its own file, and bundling moves that
+// file — so outlines and street names (both drawn by the worker) silently
+// vanished. Vite emits the worker as an asset and hands MapLibre its URL.
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
+import { SATELLITE_STYLE, STREET_STYLE, TASHKENT } from "../lib/mapStyles";
+import type { LngLat, MapLocation } from "../lib/geo";
+import { ringCenter } from "../lib/geo";
+import { useT } from "../lib/i18n";
 
-/**
- * Where a listing is, on a real map — the drawn boundary when it has one, a
- * pin when it doesn't, plus a "my location" button so a moderator can see how
- * far the property is from them.
- *
- * Leaflet with open tiles rather than Google: the dashboard would otherwise
- * need its own Maps key, and the project's key is restricted to the mobile
- * apps' bundle ids. Satellite first, like the app — Uzbek street maps are
- * thin, and rooftops are what an outline is checked against.
- */
-const SATELLITE = {
-  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-  attribution: "Esri, Maxar, Earthstar Geographics",
-};
-// Street and place names, drawn over the imagery — satellite alone gives a
-// moderator no way to read an address.
-const LABELS =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
-const STREETS = {
-  url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-  attribution: "© OpenStreetMap",
-};
+setWorkerUrl(workerUrl);
+
+type Layer = "satellite" | "street";
+const LAYER_KEY = "admin.map.layer";
+
+function readLayer(): Layer {
+  try {
+    return localStorage.getItem(LAYER_KEY) === "street" ? "street" : "satellite";
+  } catch {
+    return "satellite";
+  }
+}
+
+const SHAPE_SOURCE = "listing-shape";
+const PRIMARY = "#10b981";
 
 export interface ListingMapProps {
-  /** Drawn outline, GeoJSON rings of [lng, lat]. */
-  geom?: { type: "Polygon"; coordinates: [number, number][][] } | null;
-  /** The pin, or the boundary's centre — [lng, lat]. */
-  centroid?: { type: "Point"; coordinates: [number, number] } | null;
+  value: MapLocation;
+  /** On: clicks place the pin or add corners, and both can be dragged. */
+  editable?: boolean;
+  onChange?: (next: MapLocation) => void;
+  /** Changes when a different listing is shown, which re-frames the camera. */
+  fitKey?: string;
   height?: number;
 }
 
-export function ListingMap({ geom, centroid, height = 260 }: ListingMapProps) {
+type ShapeData = Parameters<GeoJSONSource["setData"]>[0];
+
+/** The outline as GeoJSON: a polygon from 3 corners, a line before that. */
+function shapeData(value: MapLocation): ShapeData {
+  if (value.kind !== "polygon" || value.ring.length < 2) {
+    return { type: "FeatureCollection", features: [] };
+  }
+  const ring = value.ring;
+  const geometry =
+    ring.length >= 3
+      ? { type: "Polygon" as const, coordinates: [[...ring, ring[0]]] }
+      : { type: "LineString" as const, coordinates: ring };
+  return {
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: {}, geometry }],
+  };
+}
+
+function pinElement(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "map-pin";
+  el.innerHTML =
+    '<svg viewBox="0 0 24 32" width="30" height="40" aria-hidden="true"><path d="M12 0C5.4 0 0 5.3 0 11.9 0 20.8 12 32 12 32s12-11.2 12-20.1C24 5.3 18.6 0 12 0z" fill="#10b981" stroke="#ffffff" stroke-width="2"/><circle cx="12" cy="12" r="4.5" fill="#ffffff"/></svg>';
+  return el;
+}
+
+/**
+ * Where a listing is, on MapLibre: the same engine, tiles and satellite
+ * imagery as the mobile app. Read-only it shows the outline or the pin; with
+ * `editable` it is the editor:
+ *
+ * - Pin mode: a click drops the pin, a drag moves it.
+ * - Outline mode: each click adds a corner; corners drag, and a click on one
+ *   removes it.
+ *
+ * MapLibre owns its DOM, so the map is built once and everything after that
+ * is pushed into it imperatively; refs carry the latest props into its event
+ * handlers.
+ */
+export function ListingMap({
+  value,
+  editable = false,
+  onChange,
+  fitKey,
+  height = 320,
+}: ListingMapProps) {
+  const t = useT();
   const holder = useRef<HTMLDivElement>(null);
-  const map = useRef<L.Map | null>(null);
-  const satellite = useRef<L.TileLayer | null>(null);
-  const labels = useRef<L.TileLayer | null>(null);
-  const streets = useRef<L.TileLayer | null>(null);
-  const me = useRef<L.LayerGroup | null>(null);
-  const [mode, setMode] = useState<"satellite" | "streets">("satellite");
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const markers = useRef<Marker[]>([]);
+  const meMarker = useRef<Marker | null>(null);
+
+  const valueRef = useRef(value);
+  const editableRef = useRef(editable);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    valueRef.current = value;
+    editableRef.current = editable;
+    onChangeRef.current = onChange;
+  });
+
+  const [layer, setLayer] = useState<Layer>(readLayer);
+  const [full, setFull] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
-  // A 260px strip inside a drawer is enough to confirm a pin is roughly
-  // right, and not enough to check which side of the road it is on.
-  const [full, setFull] = useState(false);
+  const [ready, setReady] = useState(false);
 
-  // Built once per listing: Leaflet owns its DOM, so React only hands it a box.
+  // ---- the map itself, once ------------------------------------------------
   useEffect(() => {
     if (!holder.current) return;
-
-    const instance = L.map(holder.current, { zoomControl: true, attributionControl: true });
-    map.current = instance;
-
-    satellite.current = L.tileLayer(SATELLITE.url, {
-      maxZoom: 19,
-      attribution: SATELLITE.attribution,
-    }).addTo(instance);
-    labels.current = L.tileLayer(LABELS, { maxZoom: 19 }).addTo(instance);
-    streets.current = L.tileLayer(STREETS.url, {
-      maxZoom: 19,
-      attribution: STREETS.attribution,
+    const map = new MapLibreMap({
+      container: holder.current,
+      style: readLayer() === "satellite" ? SATELLITE_STYLE : STREET_STYLE,
+      center: TASHKENT,
+      zoom: 11,
+      attributionControl: false,
+      // Rotation only confuses a "which side of the road" check.
+      dragRotate: false,
+      pitchWithRotate: false,
     });
-    me.current = L.layerGroup().addTo(instance);
+    map.touchZoomRotate.disableRotation();
+    map.addControl(new NavigationControl({ showCompass: false }), "top-left");
+    map.addControl(new AttributionControl({ compact: true }), "bottom-right");
 
-    const ring = geom?.coordinates?.[0];
-    if (ring && ring.length >= 3) {
-      // GeoJSON is [lng, lat]; Leaflet wants [lat, lng].
-      const shape = L.polygon(
-        ring.map(([lng, lat]) => [lat, lng] as [number, number]),
-        { color: "#10b981", weight: 2, fillOpacity: 0.25 },
-      ).addTo(instance);
-      instance.fitBounds(shape.getBounds(), { padding: [24, 24], maxZoom: 18 });
-    } else if (centroid) {
-      const [lng, lat] = centroid.coordinates;
-      L.marker([lat, lng]).addTo(instance);
-      instance.setView([lat, lng], 17);
-    } else {
-      // Nothing to show: Tashkent, so the map isn't a grey void.
-      instance.setView([41.3111, 69.2797], 11);
-    }
-
-    return () => {
-      instance.remove();
-      map.current = null;
+    // A style swap (street ↔ satellite) wipes every source and layer, so the
+    // outline is re-added each time a style finishes loading.
+    const addShape = () => {
+      if (map.getSource(SHAPE_SOURCE)) return;
+      map.addSource(SHAPE_SOURCE, { type: "geojson", data: shapeData(valueRef.current) });
+      map.addLayer({
+        id: "listing-shape-fill",
+        type: "fill",
+        source: SHAPE_SOURCE,
+        filter: ["==", ["geometry-type"], "Polygon"],
+        paint: { "fill-color": PRIMARY, "fill-opacity": 0.25 },
+      });
+      map.addLayer({
+        id: "listing-shape-line",
+        type: "line",
+        source: SHAPE_SOURCE,
+        paint: { "line-color": PRIMARY, "line-width": 2.5 },
+      });
+      setReady(true);
     };
-  }, [geom, centroid]);
+    map.on("style.load", addShape);
 
-  const toggleMode = () => {
-    const instance = map.current;
-    if (!instance || !satellite.current || !labels.current || !streets.current) return;
-    if (mode === "satellite") {
-      instance.removeLayer(satellite.current);
-      instance.removeLayer(labels.current);
-      streets.current.addTo(instance);
-      setMode("streets");
-    } else {
-      instance.removeLayer(streets.current);
-      satellite.current.addTo(instance);
-      labels.current.addTo(instance);
-      setMode("satellite");
+    map.on("click", (e: MapMouseEvent) => {
+      if (!editableRef.current || !onChangeRef.current) return;
+      // A click on a corner or the pin is theirs, not the map's.
+      if ((e.originalEvent.target as HTMLElement).closest(".maplibregl-marker")) return;
+      const at: LngLat = [e.lngLat.lng, e.lngLat.lat];
+      const current = valueRef.current;
+      if (current.kind === "polygon") {
+        onChangeRef.current({ kind: "polygon", ring: [...current.ring, at] });
+      } else {
+        onChangeRef.current({ kind: "point", point: at });
+      }
+    });
+
+    mapRef.current = map;
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      markers.current = [];
+      meMarker.current = null;
+    };
+  }, []);
+
+  // ---- street / satellite --------------------------------------------------
+  const switchLayer = () => {
+    const next: Layer = layer === "satellite" ? "street" : "satellite";
+    setLayer(next);
+    try {
+      localStorage.setItem(LAYER_KEY, next);
+    } catch {
+      /* private window: the choice just isn't remembered */
     }
+    mapRef.current?.setStyle(next === "satellite" ? SATELLITE_STYLE : STREET_STYLE);
   };
 
+  // ---- the outline, the corners and the pin --------------------------------
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    (map.getSource(SHAPE_SOURCE) as GeoJSONSource | undefined)?.setData(shapeData(value));
+    map.getCanvas().style.cursor = editable ? "crosshair" : "";
+
+    for (const m of markers.current) m.remove();
+    markers.current = [];
+
+    if (value.kind === "point") {
+      const pin = new Marker({ element: pinElement(), anchor: "bottom", draggable: editable })
+        .setLngLat(value.point)
+        .addTo(map);
+      pin.on("dragend", () => {
+        const p = pin.getLngLat();
+        onChangeRef.current?.({ kind: "point", point: [p.lng, p.lat] });
+      });
+      markers.current.push(pin);
+    }
+
+    if (value.kind === "polygon" && editable) {
+      value.ring.forEach((corner, index) => {
+        const el = document.createElement("button");
+        el.type = "button";
+        el.className = `map-vertex${index === 0 ? " map-vertex--first" : ""}`;
+        el.title = t("Bosing — o'chirish, torting — surish");
+        let moved = false;
+
+        const vertex = new Marker({ element: el, draggable: true })
+          .setLngLat(corner)
+          .addTo(map);
+
+        vertex.on("dragstart", () => {
+          moved = true;
+        });
+        // Live preview while dragging; the form only hears about the drop.
+        vertex.on("drag", () => {
+          const p = vertex.getLngLat();
+          const ring = value.ring.map((c, i): LngLat => (i === index ? [p.lng, p.lat] : c));
+          (map.getSource(SHAPE_SOURCE) as GeoJSONSource | undefined)?.setData(
+            shapeData({ kind: "polygon", ring }),
+          );
+        });
+        vertex.on("dragend", () => {
+          const p = vertex.getLngLat();
+          onChangeRef.current?.({
+            kind: "polygon",
+            ring: value.ring.map((c, i): LngLat => (i === index ? [p.lng, p.lat] : c)),
+          });
+        });
+        el.addEventListener("mousedown", () => {
+          moved = false;
+        });
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (moved) return;
+          onChangeRef.current?.({
+            kind: "polygon",
+            ring: value.ring.filter((_, i) => i !== index),
+          });
+        });
+        markers.current.push(vertex);
+      });
+    }
+  }, [value, editable, ready, layer, t]);
+
+  // ---- framing: when the listing (not the edit) changes ---------------------
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const v = valueRef.current;
+    if (v.kind === "polygon" && v.ring.length >= 2) {
+      const bounds = v.ring.reduce(
+        (b, p) => b.extend(p),
+        new LngLatBounds(v.ring[0], v.ring[0]),
+      );
+      map.fitBounds(bounds, { padding: 48, maxZoom: 18, duration: 0 });
+    } else if (v.kind === "polygon" && v.ring.length === 1) {
+      map.jumpTo({ center: v.ring[0], zoom: 17 });
+    } else if (v.kind === "point") {
+      map.jumpTo({ center: v.point, zoom: 17 });
+    } else {
+      map.jumpTo({ center: TASHKENT, zoom: 11 });
+    }
+  }, [fitKey]);
+
+  // ---- fullscreen ----------------------------------------------------------
+  useEffect(() => {
+    const id = requestAnimationFrame(() => mapRef.current?.resize());
+    if (!full) return () => cancelAnimationFrame(id);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Only this layer closes; the editor behind stays open.
+      e.stopImmediatePropagation();
+      setFull(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [full]);
+
+  // ---- my location ---------------------------------------------------------
   const locate = () => {
-    const instance = map.current;
-    if (!instance || !navigator.geolocation) {
-      setLocationError("Brauzer joylashuvni qo'llab-quvvatlamaydi");
+    const map = mapRef.current;
+    if (!map || !navigator.geolocation) {
+      setLocationError(t("Brauzer joylashuvni qo'llab-quvvatlamaydi"));
       return;
     }
     setLocating(true);
@@ -115,81 +302,81 @@ export function ListingMap({ geom, centroid, height = 260 }: ListingMapProps) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLocating(false);
-        const { latitude, longitude, accuracy } = pos.coords;
-        me.current?.clearLayers();
-        // A dot plus its accuracy circle, the way the app draws it.
-        L.circleMarker([latitude, longitude], {
-          radius: 7,
-          color: "#ffffff",
-          weight: 2,
-          fillColor: "#2563eb",
-          fillOpacity: 1,
-        }).addTo(me.current!);
-        L.circle([latitude, longitude], {
-          radius: accuracy,
-          color: "#2563eb",
-          weight: 1,
-          fillOpacity: 0.12,
-        }).addTo(me.current!);
-        instance.panTo([latitude, longitude]);
+        const at: LngLat = [pos.coords.longitude, pos.coords.latitude];
+        if (!meMarker.current) {
+          const dot = document.createElement("div");
+          dot.className = "map-me";
+          meMarker.current = new Marker({ element: dot });
+        }
+        meMarker.current.setLngLat(at).addTo(map);
+        map.flyTo({ center: at, zoom: Math.max(map.getZoom(), 15) });
       },
       (err) => {
         setLocating(false);
         setLocationError(
           err.code === err.PERMISSION_DENIED
-            ? "Joylashuvga ruxsat berilmadi"
-            : "Joylashuvni aniqlab bo'lmadi",
+            ? t("Joylashuvga ruxsat berilmadi")
+            : t("Joylashuvni aniqlab bo'lmadi"),
         );
       },
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 },
     );
   };
 
-  // Leaflet measures its container once and caches the result; a box that
-  // changes size without being told renders half its tiles grey. The frame
-  // delay lets the browser apply the new layout before the measurement.
-  useEffect(() => {
-    if (!map.current) return;
-    const id = requestAnimationFrame(() => map.current?.invalidateSize());
-    return () => cancelAnimationFrame(id);
-  }, [full]);
-
-  // Escape is the way out of anything fullscreen; without it the only exit is
-  // a button that the map itself can hide behind on a small window.
-  useEffect(() => {
-    if (!full) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [full]);
+  /** Back to the listing itself after panning around. */
+  const recenter = () => {
+    const map = mapRef.current;
+    const v = valueRef.current;
+    if (!map) return;
+    if (v.kind === "polygon" && v.ring.length >= 2) {
+      const bounds = v.ring.reduce(
+        (b, p) => b.extend(p),
+        new LngLatBounds(v.ring[0], v.ring[0]),
+      );
+      map.fitBounds(bounds, { padding: 48, maxZoom: 18 });
+    } else {
+      const center =
+        v.kind === "point" ? v.point : v.kind === "polygon" && v.ring.length ? ringCenter(v.ring) : null;
+      if (center) map.flyTo({ center, zoom: 17 });
+    }
+  };
 
   return (
     <div className={`map${full ? " map--full" : ""}`}>
       <div
         ref={holder}
         className="map__canvas"
-        // Fullscreen hands the height to CSS; inline styles would win over it.
         style={full ? undefined : { height }}
       />
 
       <div className="map__controls">
         <button
+          type="button"
           className="map__btn"
           onClick={() => setFull((on) => !on)}
-          title={full ? "Kichraytirish" : "Butun ekran"}
+          title={full ? t("Kichraytirish") : t("Butun ekran")}
         >
-          {full ? "✕ Yopish" : "⤢ Butun ekran"}
-        </button>
-        <button className="map__btn" onClick={toggleMode} title="Xarita turi">
-          {mode === "satellite" ? "Xarita" : "Sun'iy yo'ldosh"}
+          {full ? `✕ ${t("Yopish")}` : `⤢ ${t("Butun ekran")}`}
         </button>
         <button
+          type="button"
+          className={`map__btn${layer === "satellite" ? " map__btn--on" : ""}`}
+          onClick={switchLayer}
+          title={t("Xarita turi")}
+        >
+          {layer === "satellite" ? `🗺 ${t("Xarita")}` : `🛰 ${t("Sun'iy yo'ldosh")}`}
+        </button>
+        <button type="button" className="map__btn" onClick={recenter} title={t("E'longa qaytish")}>
+          ⌖ {t("E'lon")}
+        </button>
+        <button
+          type="button"
           className="map__btn"
           onClick={locate}
           disabled={locating}
-          title="Mening joylashuvim"
+          title={t("Mening joylashuvim")}
         >
-          {locating ? "..." : "◎ Men qayerdaman"}
+          {locating ? "…" : `◎ ${t("Men qayerdaman")}`}
         </button>
       </div>
 

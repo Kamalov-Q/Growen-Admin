@@ -59,8 +59,8 @@ export function TariffsPage() {
 /** The built-in actions, in the admin's words. */
 const ACTION_LABEL: Record<string, string> = {
   LISTING_POST: "E'lon joylash",
-  STORY_POST: "Hikoya joylash",
   LISTING_PROMOTE: "TOPga chiqarish",
+  VIDEO_POST: "Video joylash",
 };
 
 /** The select's "none of the above" — the admin types their own code. */
@@ -121,7 +121,7 @@ function Tariffs() {
     if (ok) remove.mutate(tariff.id);
   };
 
-  // Posting a listing or a story can only have ONE price, so a built-in
+  // Posting a listing — or a video — can only have ONE price, so a built-in
   // one-off that is already priced is edited, not added again. TOP durations
   // and custom tariffs can always be added.
   const taken = new Set(tariffs.map((x) => x.action));

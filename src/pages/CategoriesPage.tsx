@@ -51,7 +51,10 @@ export function CategoriesPage() {
   const patch = useMutation({
     mutationFn: ({ slug, body }: { slug: string; body: Partial<AdminCategory> }) =>
       adminApi.updateCategory(slug, body),
-    onSuccess: invalidate,
+    // Returned, so the mutation stays pending until the list has reloaded:
+    // the switch shows the new state the whole time instead of flicking back
+    // to the old one between "saved" and "reloaded".
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin"] }),
     onError: (e) => toast.error(e),
   });
 
@@ -173,11 +176,11 @@ export function CategoriesPage() {
                         </td>
                         <td>
                           <button
-                            className={`switch${c.isActive ? " switch--on" : ""}`}
+                            className={`switch${(patch.isPending && patch.variables?.slug === c.slug && patch.variables.body.isActive !== undefined ? !!patch.variables.body.isActive : c.isActive) ? " switch--on" : ""}`}
                             role="switch"
-                            aria-checked={c.isActive}
+                            aria-checked={(patch.isPending && patch.variables?.slug === c.slug && patch.variables.body.isActive !== undefined ? !!patch.variables.body.isActive : c.isActive)}
                             title={c.isActive ? "Ilovada ko'rinadi" : "Ilovada yashirin"}
-                            disabled={patch.isPending}
+                            disabled={patch.isPending && patch.variables?.slug === c.slug}
                             onClick={() =>
                               patch.mutate({ slug: c.slug, body: { isActive: !c.isActive } })
                             }
@@ -185,7 +188,7 @@ export function CategoriesPage() {
                             <span className="switch__knob" />
                           </button>
                           <span className="muted" style={{ marginLeft: 8 }}>
-                            {c.isActive ? "Faol" : "Yashirin"}
+                            {(patch.isPending && patch.variables?.slug === c.slug && patch.variables.body.isActive !== undefined ? !!patch.variables.body.isActive : c.isActive) ? "Faol" : "Yashirin"}
                           </span>
                         </td>
                         <td>

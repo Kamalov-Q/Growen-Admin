@@ -52,7 +52,10 @@ export function AmenitiesPage() {
   const patch = useMutation({
     mutationFn: ({ key, body }: { key: string; body: Partial<AdminAmenity> }) =>
       adminApi.updateAmenity(key, body),
-    onSuccess: invalidate,
+    // Returned, so the mutation stays pending until the list has reloaded:
+    // the switch shows the new state the whole time instead of flicking back
+    // to the old one between "saved" and "reloaded".
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin"] }),
     onError: (e) => toast.error(e),
   });
 
@@ -146,11 +149,11 @@ export function AmenitiesPage() {
                         <td className="cell-num">{a.listingCount}</td>
                         <td>
                           <button
-                            className={`switch${a.isActive ? " switch--on" : ""}`}
+                            className={`switch${(patch.isPending && patch.variables?.key === a.key && patch.variables.body.isActive !== undefined ? !!patch.variables.body.isActive : a.isActive) ? " switch--on" : ""}`}
                             role="switch"
-                            aria-checked={a.isActive}
+                            aria-checked={(patch.isPending && patch.variables?.key === a.key && patch.variables.body.isActive !== undefined ? !!patch.variables.body.isActive : a.isActive)}
                             title={a.isActive ? "Ilovada ko'rinadi" : "Ilovada yashirin"}
-                            disabled={patch.isPending}
+                            disabled={patch.isPending && patch.variables?.key === a.key}
                             onClick={() =>
                               patch.mutate({ key: a.key, body: { isActive: !a.isActive } })
                             }
@@ -158,7 +161,7 @@ export function AmenitiesPage() {
                             <span className="switch__knob" />
                           </button>
                           <span className="muted" style={{ marginLeft: 8 }}>
-                            {a.isActive ? "Faol" : "Yashirin"}
+                            {(patch.isPending && patch.variables?.key === a.key && patch.variables.body.isActive !== undefined ? !!patch.variables.body.isActive : a.isActive) ? "Faol" : "Yashirin"}
                           </span>
                         </td>
                         <td>

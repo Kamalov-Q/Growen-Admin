@@ -1,10 +1,11 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { adminApi, resolveMediaUrl } from "../lib/api";
 import { date, fullName, money, useDebounced } from "../lib/format";
 import { Badge, EmptyState, ErrorState, Pager, PageHeader, Skeleton } from "../components/ui";
 import { useT } from "../lib/i18n";
-import { ListingDrawer } from "../components/ListingDrawer";
+import { ListingEditor } from "../components/ListingEditor";
 import { useCategories } from "../lib/useCategories";
 import { CategoryIcon } from "../components/CategoryIcon";
 import { usePaging } from "../lib/usePaging";
@@ -16,6 +17,10 @@ const STATUS_LABEL: Record<string, string> = {
   DRAFT: "Qoralama",
   ARCHIVED: "Arxiv",
 };
+/** Whether the paid placement is still running. */
+const isTop = (until: string | null) =>
+  !!until && new Date(until).getTime() > Date.now();
+
 const STATUS_TONE: Record<string, "success" | "warning" | "neutral"> = {
   ACTIVE: "success",
   DRAFT: "warning",
@@ -25,7 +30,27 @@ const STATUS_TONE: Record<string, "success" | "warning" | "neutral"> = {
 export function ListingsPage() {
   const t = useT();
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<string>("");
+  /**
+   * The status filter lives in the URL, not just in state.
+   *
+   * The dashboard links straight to a filtered view ("Faol: 412" →
+   * /listings?status=ACTIVE), which only works if the page reads the
+   * parameter. It also makes a filtered table something you can bookmark or
+   * send to another moderator, which local state never allowed.
+   */
+  const [params, setParams] = useSearchParams();
+  const statusParam = params.get("status") ?? "";
+  const status = (STATUSES as readonly string[]).includes(statusParam)
+    ? statusParam
+    : "";
+  const setStatus = (next: string) => {
+    const copy = new URLSearchParams(params);
+    if (next) copy.set("status", next);
+    else copy.delete("status");
+    // Replace, not push: flipping through filters should not have to be
+    // un-done one back-press at a time.
+    setParams(copy, { replace: true });
+  };
   const [category, setCategory] = useState<string>("");
   // Live categories, hidden ones included: an admin still needs to find the
   // listings sitting in a category the app no longer offers.
@@ -176,6 +201,21 @@ export function ListingsPage() {
                               <span className="badge--dot" />
                               {STATUS_LABEL[l.status] ?? l.status}
                             </Badge>
+                            {/* Paid placement, beside the status it sits on
+                                top of. Expired ones are shown too, greyed:
+                                "was TOP until 3 Oct" tells a moderator more
+                                than no row at all. */}
+                            {l.promotedUntil ? (
+                              <div style={{ marginTop: 4 }}>
+                                <Badge
+                                  tone={
+                                    isTop(l.promotedUntil) ? "accent" : "neutral"
+                                  }
+                                >
+                                  TOP · {date(l.promotedUntil)}
+                                </Badge>
+                              </div>
+                            ) : null}
                           </td>
                           <td className="muted nowrap">{date(l.createdAt)}</td>
                           <td>
@@ -212,7 +252,7 @@ export function ListingsPage() {
         </div>
       )}
 
-      <ListingDrawer id={openId} onClose={() => setOpenId(null)} />
+      <ListingEditor id={openId} onClose={() => setOpenId(null)} />
     </>
   );
 }

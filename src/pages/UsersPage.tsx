@@ -102,6 +102,7 @@ export function UsersPage() {
               <tr>
                 <th>Foydalanuvchi</th>
                 <th>Telefon</th>
+                <th>Yosh</th>
                 <th>Rol</th>
                 <th>Holati</th>
                 <th>Ro'yxatdan o'tgan</th>
@@ -112,7 +113,7 @@ export function UsersPage() {
               {isLoading
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i}>
-                      {Array.from({ length: 6 }).map((__, c) => (
+                      {Array.from({ length: 7 }).map((__, c) => (
                         <td key={c}>
                           <Skeleton width="70%" />
                         </td>
@@ -138,6 +139,12 @@ export function UsersPage() {
                           </div>
                         </td>
                         <td>{u.phoneNumber ?? "—"}</td>
+                        {/* Derived from the birth date, so it is right every
+                            year. Em dash for the accounts that predate the
+                            field — they were never asked. */}
+                        <td className="nowrap">
+                          {u.age !== null ? u.age : "—"}
+                        </td>
                         <td>
                           <Badge tone={u.role === "ADMIN" ? "accent" : "neutral"}>{u.role}</Badge>
                         </td>

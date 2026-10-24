@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { adminApi } from "../lib/api";
 import { PageHeader, ErrorState, Skeleton } from "../components/ui";
 import { useT } from "../lib/i18n";
 import { CategoryIcon } from "../components/CategoryIcon";
-import type { CategoryCounts } from "../lib/api";
+import type { CategoryCounts, Overview } from "../lib/api";
 import { useCategories } from "../lib/useCategories";
 
 const ICON = {
@@ -46,6 +47,28 @@ const ICON = {
       <path d="M10 13h4" />
     </svg>
   ),
+  chat: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4L3 21l1.1-3.3A8.4 8.4 0 1 1 21 11.5Z" />
+    </svg>
+  ),
+  badge: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="9" r="5" />
+      <path d="m9 13.5-1 7.5 4-2 4 2-1-7.5" />
+    </svg>
+  ),
+  chevron: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  ),
+  done: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12 2.5 2.5 4.5-5" />
+    </svg>
+  ),
 } as const;
 
 /** Counters first: the one screen that answers "what happened this week". */
@@ -64,9 +87,20 @@ export function OverviewPage() {
         <ErrorState error={error} onRetry={() => void refetch()} />
       ) : (
         <div className="section-gap">
+          {/* What is waiting, before what has accumulated. An admin opens this
+              page to find out whether anything needs them — totals can wait
+              until after that question is answered. */}
+          <WorkQueue data={data} loading={isLoading} />
+
           <p className="section-title">Foydalanuvchilar</p>
           <div className="stats">
-            <Stat icon={ICON.users} label="Jami" value={data?.users.total} loading={isLoading} />
+            <Stat
+              to="/users"
+              icon={ICON.users}
+              label="Jami"
+              value={data?.users.total}
+              loading={isLoading}
+            />
             <Stat
               icon={ICON.spark}
               label="Yangi (7 kun)"
@@ -85,8 +119,15 @@ export function OverviewPage() {
 
           <p className="section-title">E'lonlar</p>
           <div className="stats">
-            <Stat icon={ICON.home} label="Jami" value={data?.listings.total} loading={isLoading} />
             <Stat
+              to="/listings"
+              icon={ICON.home}
+              label="Jami"
+              value={data?.listings.total}
+              loading={isLoading}
+            />
+            <Stat
+              to="/listings?status=ACTIVE"
               icon={ICON.spark}
               label="Faol"
               value={data?.listings.active}
@@ -100,41 +141,50 @@ export function OverviewPage() {
               loading={isLoading}
             />
             <Stat
+              to="/listings?status=ARCHIVED"
               icon={ICON.archive}
               label="Arxivdagi"
               value={data?.listings.archived}
               loading={isLoading}
               neutral
             />
-            <Stat
-              icon={ICON.flag}
-              label="Ochiq shikoyatlar"
-              value={data?.reports?.open}
-              loading={isLoading}
-              neutral={!data?.reports?.open}
-            />
-            <Stat
-              icon={ICON.flag}
-              label="Suhbat shikoyatlari"
-              value={data?.chatReports?.open}
-              loading={isLoading}
-              neutral={!data?.chatReports?.open}
-            />
-            <Stat
-              icon={ICON.flag}
-              label="Hikoya shikoyatlari"
-              value={data?.storyReports?.open}
-              loading={isLoading}
-              neutral={!data?.storyReports?.open}
-            />
-            <Stat
-              icon={ICON.flag}
-              label="Tasdiqlash so'rovlari"
-              value={data?.verification?.pending}
-              loading={isLoading}
-              neutral={!data?.verification?.pending}
-            />
           </div>
+
+          {/* Videos, only once there are any: a row of zeroes on a product
+              whose video feature has not been switched on yet reads as
+              something broken. */}
+          {data?.videos ? (
+            <>
+              <p className="section-title">Videolar</p>
+              <div className="stats">
+                <Stat
+                  to="/videos?status=READY"
+                  icon={ICON.spark}
+                  label="Chiqarilgan"
+                  value={data.videos.published}
+                  loading={isLoading}
+                />
+                <Stat
+                  icon={ICON.spark}
+                  label="Yangi (7 kun)"
+                  value={data.videos.newThisWeek}
+                  hint="oxirgi hafta"
+                  loading={isLoading}
+                />
+                {/* The number worth watching: encoded, valid, and waiting
+                    for a wallet. A pile of it is a pricing problem, not a
+                    technical one. */}
+                <Stat
+                  to="/videos?status=AWAITING_PAYMENT"
+                  icon={ICON.flag}
+                  label="To'lov kutilmoqda"
+                  value={data.videos.awaitingPayment}
+                  loading={isLoading}
+                  neutral
+                />
+              </div>
+            </>
+          ) : null}
 
           <CategoryBreakdown
             counts={data?.listings.byCategory}
@@ -147,7 +197,96 @@ export function OverviewPage() {
   );
 }
 
+/**
+ * The four things that can be waiting on a moderator, as a to-do list.
+ *
+ * These were plain counters filed under "E'lonlar", which is where they did
+ * the least good: a chat report is not a listing statistic, and a number on
+ * a card gives no way to act on it. Each one is now a link to the page that
+ * clears it, amber while something is pending and quiet when it is not.
+ *
+ * When every queue is empty the list is replaced by one line saying so —
+ * four zeroes look like a page that failed to load.
+ */
+function WorkQueue({
+  data,
+  loading,
+}: {
+  data: Overview | undefined;
+  loading: boolean;
+}) {
+  const queues = [
+    { to: "/verification", label: "Tasdiqlash so'rovlari", n: data?.verification?.pending ?? 0, icon: ICON.badge },
+    { to: "/reports", label: "E'lon shikoyatlari", n: data?.reports?.open ?? 0, icon: ICON.flag },
+    { to: "/chat-reports", label: "Suhbat shikoyatlari", n: data?.chatReports?.open ?? 0, icon: ICON.chat },
+    // Everyone can post video, so this queue is the one that can grow on its
+    // own overnight.
+    { to: "/video-reports", label: "Video shikoyatlari", n: data?.videoReports?.open ?? 0, icon: ICON.flag },
+  ];
+  const waiting = queues.reduce((sum, q) => sum + q.n, 0);
+
+  if (loading) {
+    return (
+      <>
+        <p className="section-title">Ishlash kerak</p>
+        <div className="queue">
+          {queues.map((q) => (
+            <div key={q.to} className="queue__card">
+              <span className="queue__icon">{q.icon}</span>
+              <span className="queue__body">
+                <Skeleton width={38} height={21} />
+                <span className="queue__label">{q.label}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="section-title__row">
+        <p className="section-title">Ishlash kerak</p>
+        {waiting > 0 ? (
+          <span className="muted">{waiting} ta kutmoqda</span>
+        ) : null}
+      </div>
+
+      {waiting === 0 ? (
+        <p className="queue-clear">
+          {ICON.done}
+          Hammasi ko'rib chiqilgan — kutayotgan so'rov yo'q
+        </p>
+      ) : (
+        <div className="queue">
+          {queues.map((q) => (
+            <Link
+              key={q.to}
+              to={q.to}
+              className={`queue__card${q.n > 0 ? " queue__card--due" : ""}`}
+            >
+              <span className="queue__icon">{q.icon}</span>
+              <span className="queue__body">
+                <span className="queue__count">{q.n}</span>
+                <span className="queue__label">{q.label}</span>
+              </span>
+              <span className="queue__go">{ICON.chevron}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * One counter. Given a `to`, the whole card becomes the link to the page
+ * behind the number — reading "412 e'lon" and then hunting the sidebar for
+ * where to see them was the old way round.
+ */
 function Stat({
+  to,
   icon,
   label,
   value,
@@ -155,6 +294,7 @@ function Stat({
   loading,
   neutral,
 }: {
+  to?: string;
   icon: ReactNode;
   label: string;
   value: number | undefined;
@@ -162,8 +302,8 @@ function Stat({
   loading: boolean;
   neutral?: boolean;
 }) {
-  return (
-    <div className="card stat">
+  const body = (
+    <>
       <div className="stat__head">
         <span className="stat__label">{label}</span>
         <span className={`stat__icon${neutral ? " stat__icon--neutral" : ""}`}>{icon}</span>
@@ -182,7 +322,15 @@ function Stat({
           {hint}
         </span>
       ) : null}
-    </div>
+    </>
+  );
+
+  return to ? (
+    <Link to={to} className="card stat">
+      {body}
+    </Link>
+  ) : (
+    <div className="card stat">{body}</div>
   );
 }
 

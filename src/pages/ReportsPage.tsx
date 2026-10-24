@@ -6,7 +6,7 @@ import { Badge, EmptyState, ErrorState, Pager, PageHeader, Skeleton } from "../c
 import { useT } from "../lib/i18n";
 import { toast } from "../lib/toast";
 import { usePaging } from "../lib/usePaging";
-import { ListingDrawer } from "../components/ListingDrawer";
+import { ListingEditor } from "../components/ListingEditor";
 import { UserDrawer } from "../components/UserDrawer";
 
 const STATUSES = ["OPEN", "RESOLVED", "DISMISSED", ""] as const;
@@ -211,7 +211,7 @@ export function ReportsPage() {
 
       <UserDrawer id={openUser} onClose={() => setOpenUser(null)} />
 
-      <ListingDrawer id={openListing} onClose={() => setOpenListing(null)} />
+      <ListingEditor id={openListing} onClose={() => setOpenListing(null)} />
     </>
   );
 }

@@ -60,13 +60,6 @@ const ICONS = {
       <path d="m9 12 2.2 2.2L15.5 10" />
     </svg>
   ),
-  storyReports: (
-    <svg className="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="6" y="3" width="12" height="18" rx="3" />
-      <path d="M3 7.5v9M21 7.5v9" />
-      <path d="M12 9.5v3M12 15.5h.01" />
-    </svg>
-  ),
   chatReports: (
     <svg className="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 21 12z" />
@@ -102,6 +95,12 @@ const ICONS = {
       <path d="M5 4h13l-2.5 4L18 12H5" />
     </svg>
   ),
+  videos: (
+    <svg className="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2.5" y="6" width="13" height="12" rx="2.5" />
+      <path d="M15.5 10.5 21 7.5v9l-5.5-3z" />
+    </svg>
+  ),
 } as const;
 
 interface NavItem {
@@ -120,6 +119,7 @@ const NAV: (NavItem | NavGroupItem)[] = [
   { to: "/", label: "Boshqaruv", end: true, icon: ICONS.home },
   { to: "/users", label: "Foydalanuvchilar", icon: ICONS.users },
   { to: "/listings", label: "E'lonlar", icon: ICONS.listings },
+  { to: "/videos", label: "Videolar", icon: ICONS.videos },
   { to: "/categories", label: "Kategoriyalar", icon: ICONS.categories },
   { to: "/amenities", label: "Xususiyatlar", icon: ICONS.amenities },
   { to: "/tariffs", label: "Tariflar", icon: ICONS.tariffs },
@@ -138,7 +138,7 @@ const NAV: (NavItem | NavGroupItem)[] = [
     children: [
       { to: "/reports", label: "E'lon shikoyatlari", icon: ICONS.listings },
       { to: "/chat-reports", label: "Suhbat shikoyatlari", icon: ICONS.chatReports },
-      { to: "/story-reports", label: "Hikoya shikoyatlari", icon: ICONS.storyReports },
+      { to: "/video-reports", label: "Video shikoyatlari", icon: ICONS.videos },
     ],
   },
   { to: "/verification", label: "Tasdiqlash so'rovlari", icon: ICONS.verification },

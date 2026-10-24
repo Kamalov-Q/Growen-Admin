@@ -7,7 +7,7 @@ import { useT } from "../lib/i18n";
 import { toast } from "../lib/toast";
 import { usePaging } from "../lib/usePaging";
 import { confirmDialog } from "../lib/confirm";
-import { ListingDrawer } from "../components/ListingDrawer";
+import { ListingEditor } from "../components/ListingEditor";
 
 /** The filters worth having: everything, the complaints, and the ones that
  *  actually say something. Moderation reads the bottom of the list first. */
@@ -190,7 +190,7 @@ export function ReviewsPage() {
         </div>
       )}
 
-      <ListingDrawer id={openListing} onClose={() => setOpenListing(null)} />
+      <ListingEditor id={openListing} onClose={() => setOpenListing(null)} />
     </>
   );
 }
