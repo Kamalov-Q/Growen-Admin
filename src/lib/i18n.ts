@@ -13,15 +13,16 @@ export type Lang = "uz" | "ru";
  * a half-finished UI in between.
  */
 const RU: Record<string, string> = {
-  // ---- shell
   // ---- map search
+  // Qidirish and Tozalash are not here: keys are the Uzbek source string, so
+  // they are the same key as the common actions further down, and a second
+  // entry is a duplicate property rather than a map-specific translation.
   "Tuman, bekat yoki manzil": "Район, станция или адрес",
   "Xaritadan qidirish": "Поиск по карте",
-  Qidirish: "Найти",
-  Tozalash: "Очистить",
   "Bunday joy topilmadi": "Такое место не найдено",
   "Qidiruv ishlamadi — keyinroq urinib ko'ring": "Поиск не сработал — попробуйте позже",
 
+  // ---- shell
   "Admin panel": "Админ-панель",
   MENYU: "МЕНЮ",
   Boshqaruv: "Панель",

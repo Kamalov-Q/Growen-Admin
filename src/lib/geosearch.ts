@@ -15,6 +15,10 @@
 // The public instance is for light use. Moving to a self-hosted Nominatim or
 // to Photon means changing ENDPOINT and the response mapping, and nothing
 // above this file.
+// tsconfig sets `types: ["vite/client"]`, which switches off the automatic
+// pull of every @types package — so the global `GeoJSON` namespace is not
+// there to reach for, and the shapes come in as an ordinary import.
+import type { MultiPolygon, Polygon } from "geojson";
 import type { LngLat } from "./geo";
 import type { UzRegion } from "./api";
 
@@ -117,7 +121,7 @@ export interface PlaceArea {
   kind: "area";
   label: string;
   /** Polygon or MultiPolygon, [lng, lat] throughout, as the map wants it. */
-  geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon;
+  geometry: Polygon | MultiPolygon;
   /** [west, south, east, north] — what the camera is framed against. */
   bbox: [number, number, number, number];
 }
