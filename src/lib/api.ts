@@ -152,6 +152,17 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+/** One entry of the official SOATO classifier. */
+export interface UzDistrict {
+  code: string;
+  uz: string;
+  ru: string;
+}
+
+export interface UzRegion extends UzDistrict {
+  districts: UzDistrict[];
+}
+
 export const adminApi = {
   login: (phone: string, password: string) =>
     api<SessionResponse>("/auth/phone/login", {
@@ -161,6 +172,13 @@ export const adminApi = {
     }),
 
   logout: () => api<void>("/auth/logout", { method: "POST" }),
+
+  /**
+   * The fourteen regions with their districts — public, and the same list
+   * the app's profile uses. The map's search resolves a typed district name
+   * against it before asking OSM; see lib/geosearch.ts.
+   */
+  regions: () => api<UzRegion[]>("/regions", { auth: false }),
 
   overview: () => api<Overview>("/admin/overview"),
 

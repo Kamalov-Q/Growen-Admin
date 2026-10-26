@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   AttributionControl,
   LngLatBounds,
@@ -16,6 +17,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { SATELLITE_STYLE, STREET_STYLE, TASHKENT } from "../lib/mapStyles";
 import type { LngLat, MapLocation } from "../lib/geo";
+import { GEOSEARCH_CREDIT, searchPlace, type Place } from "../lib/geosearch";
+import { adminApi } from "../lib/api";
 import { ringCenter } from "../lib/geo";
 import { useT } from "../lib/i18n";
 
@@ -34,6 +37,12 @@ function readLayer(): Layer {
 
 const SHAPE_SOURCE = "listing-shape";
 const PRIMARY = "#10b981";
+
+// The search result, in a colour that is NOT the listing's: on this map
+// "where the advert is" and "where you searched" are two different claims,
+// and a moderator comparing them needs to see which is which at a glance.
+const SEARCH_SOURCE = "map-search";
+const SEARCH_COLOR = "#3b82f6";
 
 export interface ListingMapProps {
   value: MapLocation;
@@ -61,6 +70,24 @@ function shapeData(value: MapLocation): ShapeData {
     type: "FeatureCollection",
     features: [{ type: "Feature", properties: {}, geometry }],
   };
+}
+
+/** The found area as a feature collection; empty for a point or no result. */
+function searchData(place: Place | null): ShapeData {
+  return place?.kind === "area"
+    ? {
+        type: "FeatureCollection",
+        features: [{ type: "Feature", properties: {}, geometry: place.geometry }],
+      }
+    : { type: "FeatureCollection", features: [] };
+}
+
+function searchPinElement(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "map-search-pin";
+  el.innerHTML =
+    '<svg viewBox="0 0 24 32" width="26" height="35" aria-hidden="true"><path d="M12 0C5.4 0 0 5.3 0 11.9 0 20.8 12 32 12 32s12-11.2 12-20.1C24 5.3 18.6 0 12 0z" fill="#3b82f6" stroke="#ffffff" stroke-width="2"/><circle cx="12" cy="12" r="4.5" fill="#ffffff"/></svg>';
+  return el;
 }
 
 function pinElement(): HTMLElement {
@@ -96,14 +123,33 @@ export function ListingMap({
   const mapRef = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
   const meMarker = useRef<Marker | null>(null);
+  const searchMarker = useRef<Marker | null>(null);
+
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [found, setFound] = useState<Place | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  // Fetched once and held: the classifier does not change between page
+  // loads, and the search needs it to turn "chilonzor" into the name OSM
+  // indexes the boundary under.
+  const { data: regions } = useQuery({
+    queryKey: ["regions"],
+    queryFn: adminApi.regions,
+    staleTime: Infinity,
+  });
 
   const valueRef = useRef(value);
   const editableRef = useRef(editable);
   const onChangeRef = useRef(onChange);
+  // Read inside `style.load`, which fires again on every street/satellite
+  // swap — see addShape.
+  const foundRef = useRef<Place | null>(null);
   useEffect(() => {
     valueRef.current = value;
     editableRef.current = editable;
     onChangeRef.current = onChange;
+    foundRef.current = found;
   });
 
   const [layer, setLayer] = useState<Layer>(readLayer);
@@ -147,6 +193,36 @@ export function ListingMap({
         source: SHAPE_SOURCE,
         paint: { "line-color": PRIMARY, "line-width": 2.5 },
       });
+
+      // The searched district, under the listing's own outline: when an
+      // advert sits inside the area you searched for, the advert is the
+      // thing being judged and must stay on top.
+      map.addSource(SEARCH_SOURCE, {
+        type: "geojson",
+        data: searchData(foundRef.current),
+      });
+      map.addLayer(
+        {
+          id: "map-search-fill",
+          type: "fill",
+          source: SEARCH_SOURCE,
+          paint: { "fill-color": SEARCH_COLOR, "fill-opacity": 0.1 },
+        },
+        "listing-shape-fill",
+      );
+      map.addLayer(
+        {
+          id: "map-search-line",
+          type: "line",
+          source: SEARCH_SOURCE,
+          paint: {
+            "line-color": SEARCH_COLOR,
+            "line-width": 2.5,
+            "line-dasharray": [2, 1.5],
+          },
+        },
+        "listing-shape-fill",
+      );
       setReady(true);
     };
     map.on("style.load", addShape);
@@ -170,6 +246,7 @@ export function ListingMap({
       mapRef.current = null;
       markers.current = [];
       meMarker.current = null;
+      searchMarker.current = null;
     };
   }, []);
 
@@ -184,6 +261,77 @@ export function ListingMap({
     }
     mapRef.current?.setStyle(next === "satellite" ? SATELLITE_STYLE : STREET_STYLE);
   };
+
+  // ---- place search --------------------------------------------------------
+  const runSearch = async (e: FormEvent) => {
+    e.preventDefault();
+    const map = mapRef.current;
+    if (!map || !query.trim() || searching) return;
+
+    setSearching(true);
+    setSearchError(null);
+    try {
+      // The current view, as a preference rather than a filter: looking at
+      // Tashkent, "Bodomzor" should mean the station here and not the
+      // village of that name in Qashqadaryo.
+      const b = map.getBounds();
+      const place = await searchPlace(query, {
+        bias: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
+        regions,
+      });
+      if (!place) {
+        setFound(null);
+        setSearchError(t("Bunday joy topilmadi"));
+        return;
+      }
+      setFound(place);
+    } catch {
+      // One message for every failure: offline, rate-limited and malformed
+      // all leave the moderator with the same thing to do, which is try
+      // again or type something else.
+      setFound(null);
+      setSearchError(t("Qidiruv ishlamadi — keyinroq urinib ko'ring"));
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const clearSearch = () => {
+    setQuery("");
+    setFound(null);
+    setSearchError(null);
+  };
+
+  // The result on the map: an outline for a district, a pin for a station or
+  // a street. Split by kind rather than always drawing both, because a dot in
+  // the middle of a tuman points at nothing in particular.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    (map.getSource(SEARCH_SOURCE) as GeoJSONSource | undefined)?.setData(searchData(found));
+
+    if (found?.kind === "point") {
+      if (!searchMarker.current) {
+        searchMarker.current = new Marker({
+          element: searchPinElement(),
+          anchor: "bottom",
+        });
+      }
+      searchMarker.current.setLngLat(found.center).addTo(map);
+    } else {
+      searchMarker.current?.remove();
+    }
+
+    if (found?.kind === "area") {
+      const [west, south, east, north] = found.bbox;
+      // maxZoom so a one-block mahalla does not slam the camera to street
+      // level, where the outline no longer fits on screen.
+      map.fitBounds([[west, south], [east, north]], { padding: 40, maxZoom: 16 });
+    } else if (found?.kind === "point") {
+      map.flyTo({ center: found.center, zoom: 16 });
+    }
+  }, [found, ready, layer]);
 
   // ---- the outline, the corners and the pin --------------------------------
   useEffect(() => {
@@ -350,6 +498,38 @@ export function ListingMap({
       />
 
       <div className="map__controls">
+        {/* Submit-driven, never per keystroke: Nominatim's policy forbids
+            autocomplete against the public instance, and a moderator looking
+            up a district types the whole word anyway. */}
+        <form className="map__search" onSubmit={runSearch}>
+          <input
+            className="map__searchInput"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("Tuman, bekat yoki manzil")}
+            aria-label={t("Xaritadan qidirish")}
+            enterKeyHint="search"
+          />
+          {query || found ? (
+            <button
+              type="button"
+              className="map__searchBtn"
+              onClick={clearSearch}
+              title={t("Tozalash")}
+            >
+              ✕
+            </button>
+          ) : null}
+          <button
+            type="submit"
+            className="map__searchBtn"
+            disabled={searching || !query.trim()}
+            title={t("Qidirish")}
+          >
+            {searching ? "…" : "⌕"}
+          </button>
+        </form>
+
         <button
           type="button"
           className="map__btn"
@@ -380,6 +560,15 @@ export function ListingMap({
         </button>
       </div>
 
+      {found ? (
+        <p className="map__found">
+          <span className="map__foundDot" aria-hidden="true" />
+          <span className="map__foundName" title={found.label}>{found.label}</span>
+          <span className="muted">· {GEOSEARCH_CREDIT}</span>
+        </p>
+      ) : null}
+
+      {searchError ? <p className="map__error">{searchError}</p> : null}
       {locationError ? <p className="map__error">{locationError}</p> : null}
     </div>
   );

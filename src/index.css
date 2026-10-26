@@ -1346,6 +1346,71 @@ a.link:hover { text-decoration: underline; }
 .map__btn--on { border-color: var(--primary-border); color: var(--primary); }
 .map__error { margin: 6px 0 0; font-size: 12.5px; color: var(--danger); }
 
+/* Place search, sitting above the layer/fullscreen buttons in the same rail.
+   Wider than those on purpose: a district name is longer than a verb. */
+.map__search {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 2px 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.map__searchInput {
+  width: 170px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 0;
+  outline: none;
+}
+.map__searchInput::placeholder { color: var(--text-muted); }
+.map__searchBtn {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.map__searchBtn:hover:not(:disabled) { background: var(--surface-raised); color: var(--primary); }
+.map__searchBtn:disabled { opacity: 0.45; cursor: default; }
+
+/* What was found, under the map — and the credit ODbL requires with it. */
+.map__found {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  min-width: 0;
+}
+.map__foundDot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #3b82f6;
+}
+.map__foundName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The searched-for pin: blue, so it never reads as the listing's own. */
+.map-search-pin { filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); }
+
 /* Fullscreen: above the editor (z-index 60) so the map is not framed by the
    dialog it was opened from. */
 .map--full {
@@ -1357,6 +1422,8 @@ a.link:hover { text-decoration: underline; }
 }
 .map--full .map__canvas { height: 100%; border-radius: 14px; }
 .map--full .map__controls { top: 26px; right: 26px; }
+.map--full .map__searchInput { width: 240px; }
+@media (max-width: 560px) { .map__searchInput { width: 120px; } }
 
 /* ---- photo swiper -------------------------------------------------------- */
 .swiper { position: relative; }

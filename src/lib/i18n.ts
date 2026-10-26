@@ -14,6 +14,14 @@ export type Lang = "uz" | "ru";
  */
 const RU: Record<string, string> = {
   // ---- shell
+  // ---- map search
+  "Tuman, bekat yoki manzil": "Район, станция или адрес",
+  "Xaritadan qidirish": "Поиск по карте",
+  Qidirish: "Найти",
+  Tozalash: "Очистить",
+  "Bunday joy topilmadi": "Такое место не найдено",
+  "Qidiruv ishlamadi — keyinroq urinib ko'ring": "Поиск не сработал — попробуйте позже",
+
   "Admin panel": "Админ-панель",
   MENYU: "МЕНЮ",
   Boshqaruv: "Панель",
