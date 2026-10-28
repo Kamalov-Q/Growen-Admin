@@ -311,6 +311,14 @@ const RU: Record<string, string> = {
   "Bir sahifadagi qatorlar": "Строк на странице",
   "Tizim holati": "Состояние системы",
   "Markaziy bank kursi": "Курс ЦБ",
+  "Valyuta kursi": "Курс валюты",
+  "Markaziy bank": "Центральный банк",
+  "Bozor kursi": "Рыночный курс",
+  "Zaxira qiymat": "Резервное значение",
+  "cbu.uz javob bermadi — bozor kursi ishlatilmoqda":
+    "cbu.uz не отвечает — используется рыночный курс",
+  "Ikkala manba ham javob bermadi — qat'iy qiymat ishlatilmoqda":
+    "Оба источника недоступны — используется фиксированное значение",
   "SMS balansi": "Баланс SMS",
   "Server vaqti": "Время сервера",
   Hisobim: "Мой аккаунт",

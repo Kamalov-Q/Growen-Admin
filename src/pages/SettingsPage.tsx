@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { adminApi } from "../lib/api";
+import { adminApi, type RateSource } from "../lib/api";
 import { useAuth } from "../features/auth/useAuth";
 import { ErrorState, PageHeader, Skeleton } from "../components/ui";
 import { localeOf, setLang, useLang, useT, type Lang } from "../lib/i18n";
@@ -10,6 +10,25 @@ import {
   type CurrencyMode,
   type ThemeMode,
 } from "../lib/prefs";
+
+/**
+ * What each source is called on screen.
+ *
+ * Keyed by the API's own value and kept total, so a source added server-side
+ * is a compile error here rather than a blank line on the page.
+ */
+const RATE_SOURCE_LABEL: Record<RateSource, string> = {
+  CBU: "Markaziy bank",
+  MARKET: "Bozor kursi",
+  CONSTANT: "Zaxira qiymat",
+};
+
+/** Why it is not the central bank's number. Only shown when it is not. */
+const RATE_SOURCE_WHY: Record<RateSource, string> = {
+  CBU: "",
+  MARKET: "cbu.uz javob bermadi — bozor kursi ishlatilmoqda",
+  CONSTANT: "Ikkala manba ham javob bermadi — qat'iy qiymat ishlatilmoqda",
+};
 
 export function SettingsPage() {
   const t = useT();
@@ -119,10 +138,43 @@ export function SettingsPage() {
             </>
           ) : (
             <dl className="kv">
-              <dt>{t("Markaziy bank kursi")}</dt>
+              {/* The label follows the SOURCE rather than asserting the
+                  central bank. It said "Markaziy bank kursi" unconditionally,
+                  and on the production droplet that was never true: cbu.uz
+                  does not answer foreign IPs, so this line showed a hardcoded
+                  constant about 7% out under a label crediting the central
+                  bank for it. A number is only as good as where it came from,
+                  and this is the one page whose job is to say so.
+
+                  `rateSource` is optional: an API that has not been
+                  redeployed yet sends neither field, and the old label is the
+                  right thing to show then. */}
+              <dt>
+                {data.rateSource
+                  ? t("Valyuta kursi")
+                  : t("Markaziy bank kursi")}
+              </dt>
               <dd>
                 1 USD = {data.usdToUzs.toLocaleString(localeOf(lang))} so'm{" "}
                 <span className="muted">· {fmtDate(data.rateUpdatedAt)}</span>
+                {data.rateSource ? (
+                  <>
+                    <br />
+                    <span
+                      className={
+                        data.rateIsFallback ? "settings__bad" : "muted"
+                      }
+                    >
+                      {t(RATE_SOURCE_LABEL[data.rateSource])}
+                    </span>
+                    {data.rateIsFallback ? (
+                      <span className="muted">
+                        {" "}
+                        · {t(RATE_SOURCE_WHY[data.rateSource])}
+                      </span>
+                    ) : null}
+                  </>
+                ) : null}
               </dd>
 
               <dt>{t("SMS balansi")}</dt>

@@ -1040,10 +1040,25 @@ export interface AdminUserDetail extends AdminUserRow {
   identities: { provider: string; linkedAt: string }[];
 }
 
+/**
+ * Where the USD/UZS rate came from.
+ *
+ * `CBU` is the Central Bank's published figure. `MARKET` is a mid-market
+ * aggregate, used only when cbu.uz cannot be reached — it is geo-restricted
+ * and does not answer hosts outside Uzbekistan, which is permanently the case
+ * for the production droplet. `CONSTANT` is a hardcoded last resort and means
+ * both fetches have failed since the API booted.
+ */
+export type RateSource = "CBU" | "MARKET" | "CONSTANT";
+
 export interface AdminSystem {
   usdToUzs: number;
   /** Null until the first successful fetch after the API booted. */
   rateUpdatedAt: string | null;
+  /** Which source produced `usdToUzs`. Older APIs do not send it. */
+  rateSource?: RateSource;
+  /** True for anything that is not CBU's published figure. */
+  rateIsFallback?: boolean;
   /** Null when the provider could not be reached — `smsError` says why. */
   smsBalance: number | null;
   smsError: string | null;
